@@ -7,6 +7,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Get,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { AuthService } from '../services/auth.service';
@@ -17,6 +19,9 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { ClientGuard } from '../guards/client.guard';
 import { REFRESH_COOKIE_NAME, ClientApp } from '../common/auth.constants';
+import { AuthGuard } from '@nestjs/passport';
+import { OptionalJwtAuthGuard } from '../guards';
+import { RegisterDeviceDto } from 'src/modules/users/dto/register-device.dto';
 
 @Controller('auth/customer')
 @Client('customer_mobile')
@@ -24,92 +29,108 @@ export class CustomerAuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly tokenService: TokenService,
-  ) {}
+  ) { }
 
-  @Post('login-otp')
+  @Post('device/register')
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async loginOtp(
-    @Body() dto: { phone: string; otp: string },
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request,
-  ) {
-    const app: ClientApp = 'customer_mobile';
-    const deviceId = req.headers['x-device-id'] as string;
-
-    const result = await this.authService.loginCustomerOtp(dto, { app, deviceId });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], result.refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/customer/refresh',
-    });
-
-    return { data: result };
+  async registerDevice(@Req() req: any, @Body() dto: RegisterDeviceDto) {
+    console.log('[device/register] user=', req.user?.userId, 'dto=', dto);
+    const userId = req.user.userId;
+    await this.authService.registerCustomerDevice(userId, dto);
+    return { success: true };
+  }
+  // =========================ac
+  // OAUTH START (Google/GitHub)
+  // =========================
+  // Google: mở URL này từ mobile (FlutterWebAuth2)
+  @Get('oauth/google')
+  @UseGuards(AuthGuard('google'))
+  async googleStart() {
+    // passport sẽ tự redirect sang Google
   }
 
-  @Post('register-otp')
-  async registerOtp(
-    @Body() dto: { phone: string; otp: string; full_name: string },
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request,
-  ) {
+  @Get('oauth/google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleCallback(@Req() req: Request, @Res() res: Response) {
     const app: ClientApp = 'customer_mobile';
-    const deviceId = req.headers['x-device-id'] as string;
 
-    const result = await this.authService.registerCustomerOtp(dto, { app, deviceId });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], result.refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/customer/refresh',
+    // req.user là object từ GoogleStrategy.validate()
+    const result = await this.authService.loginCustomerOAuth(req.user as any, {
+      app,
+      deviceId: null,
     });
 
-    return { data: result };
+    // Redirect về deep-link của app
+    const redirectUri =
+      `myshop://oauth-callback` +
+      `?accessToken=${encodeURIComponent(result.accessToken)}` +
+      `&refreshToken=${encodeURIComponent(result.refreshToken)}`;
+
+    return res.redirect(redirectUri);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
-  @Roles('customer')
+  // GitHub
+  @Get('oauth/github')
+  @UseGuards(AuthGuard('github'))
+  async githubStart() { }
+
+  @Get('oauth/github/callback')
+  @UseGuards(AuthGuard('github'))
+  async githubCallback(@Req() req: Request, @Res() res: Response) {
+    const app: ClientApp = 'customer_mobile';
+
+    const result = await this.authService.loginCustomerOAuth(req.user as any, {
+      app,
+      deviceId: null,
+    });
+
+    const redirectUri =
+      `myshop://oauth-callback` +
+      `?accessToken=${encodeURIComponent(result.accessToken)}` +
+      `&refreshToken=${encodeURIComponent(result.refreshToken)}`;
+
+    return res.redirect(redirectUri);
+  }
+
+  // =========================
+  // MOBILE REFRESH (body refreshToken)
+  // =========================
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+  async refresh(@Body() dto: { refreshToken: string }) {
+    if (!dto?.refreshToken) throw new UnauthorizedException('Missing refreshToken');
+
     const app: ClientApp = 'customer_mobile';
-    const user = req.user;
+    const data = await this.authService.refreshCustomerMobile(dto.refreshToken, app);
 
-    const { access_token } = await this.tokenService.signAccessToken({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      aud: app,
-      sid: user.sid,
-    });
-
-    const { refresh_token } = await this.tokenService.signRefreshToken({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      aud: app,
-      sid: user.sid,
-    });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/customer/refresh',
-    });
-
-    return { data: { access_token } };
+    // ✅ key đồng nhất cho mobile
+    return { success: true, data }; // { accessToken, refreshToken }
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
-  @Roles('customer')
+  // =========================
+  // ME (optional auth) -> trả null nếu guest
+  // =========================
+  @Get('me')
+  @UseGuards(OptionalJwtAuthGuard)
+  async me(@Req() req: any) {
+    if (!req.user) return { success: true, data: null };
+
+    const userId = req.user.userId;
+
+    // ✅ thay vì getUserSafe -> lấy kèm profile
+    const data = await this.authService.getMeCustomer(userId);
+
+    return { success: true, data };
+  }
+
+  // =========================
+  // LOGOUT (revoke sid theo refreshToken nếu có)
+  // =========================
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) res: Response) {
-    const app: ClientApp = 'customer_mobile';
-    res.clearCookie(REFRESH_COOKIE_NAME[app], { path: '/auth/customer/refresh' });
-    return { message: 'Logged out successfully' };
+  async logout(@Body() dto: { refreshToken?: string }) {
+    await this.authService.logoutCustomerMobile(dto?.refreshToken);
+    return { success: true };
   }
 }

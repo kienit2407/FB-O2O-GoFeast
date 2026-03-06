@@ -1,13 +1,36 @@
+// src/config/config.service.ts
 import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class ConfigService {
   private readonly env = process.env;
 
+  /**
+   * Lấy biến môi trường theo key.
+   * - Nếu không có thì trả về defaultValue (nếu truyền)
+   * - Có thể ép kiểu bằng generic T
+   */
+  // ✅ Implement get() để dùng kiểu this.config.get<string>('TRACKASIA_KEY')
+  get<T = string>(key: string, defaultValue?: T): T | undefined {
+    const v = this.env[key];
+    if (v == null) return defaultValue;
+    return v as unknown as T;
+  }
+
+  getOrThrow<T = string>(key: string): T {
+    const v = this.get<T>(key);
+    if (v === undefined) throw new Error(`${key} is missing`);
+    return v;
+  }
+
+  // ====== GIỮ NGUYÊN CÁC GETTER CỦA BẠN ======
+
   get mongoUri(): string {
     return this.env.MONGO_URI || 'mongodb://hocnode:y2xnBjrDSvXotttf@localhost:27017';
   }
-
+  get trackAsiaKey(): string {
+    return this.env.TRACKASIA_KEY || '';
+  }
   get jwtSecret(): string {
     return this.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
   }

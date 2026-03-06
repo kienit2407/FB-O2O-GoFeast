@@ -12,7 +12,16 @@ export class ProductsService {
         @InjectModel(Category.name) private categoryModel: Model<CategoryDocument>,
         @InjectModel(Topping.name) private toppingModel: Model<ToppingDocument>,
     ) { }
-
+    private normalizeImages(images: any[] = []) {
+        return (images || [])
+            .slice()
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            .map((img, idx) => ({
+                url: img.url,
+                public_id: img.public_id,
+                position: idx,
+            }));
+    }
     async list(
         merchantId: string,
         query?: { q?: string; categoryId?: string; status?: 'all' | 'available' | 'unavailable' },
@@ -28,7 +37,6 @@ export class ProductsService {
     }
 
     async create(merchantId: string, data: Partial<Product>) {
-        // validate category belongs to merchant
         const cat = await this.categoryModel.findOne({
             _id: new Types.ObjectId(data.category_id as any),
             merchant_id: new Types.ObjectId(merchantId),
@@ -36,7 +44,6 @@ export class ProductsService {
         });
         if (!cat) throw new BadRequestException('Category không hợp lệ');
 
-        // validate toppings belong to merchant
         if (data.topping_ids?.length) {
             const count = await this.toppingModel.countDocuments({
                 _id: { $in: data.topping_ids.map(id => new Types.ObjectId(id as any)) },
@@ -51,16 +58,17 @@ export class ProductsService {
             .sort({ sort_order: -1 })
             .limit(1);
 
-        const nextSort = typeof data.sort_order === 'number'
-            ? data.sort_order
-            : (last?.[0]?.sort_order ?? 0) + 1;
+        const nextSort =
+            typeof data.sort_order === 'number'
+                ? data.sort_order
+                : (last?.[0]?.sort_order ?? 0) + 1;
 
         const doc = new this.productModel({
             merchant_id: new Types.ObjectId(merchantId),
             category_id: new Types.ObjectId(data.category_id as any),
             name: data.name,
-            description: data.description,
-            image_urls: data.image_urls ?? [],
+            description: data.description || '',
+            images: this.normalizeImages((data as any).images || []), // ✅
             base_price: data.base_price,
             sale_price: data.sale_price ?? 0,
             is_available: data.is_available ?? true,
@@ -92,20 +100,90 @@ export class ProductsService {
             data.topping_ids = data.topping_ids.map(t => new Types.ObjectId(t as any)) as any;
         }
 
+        // ✅ nếu có images thì normalize trước khi set
+        const patch: any = { ...data };
+        if ((data as any).images) {
+            patch.images = this.normalizeImages((data as any).images);
+        }
+
         const doc = await this.productModel.findOneAndUpdate(
             {
                 _id: new Types.ObjectId(id),
                 merchant_id: new Types.ObjectId(merchantId),
                 deleted_at: null,
             },
-            { $set: data },
+            { $set: patch },
             { new: true },
         );
 
         if (!doc) throw new NotFoundException('Product not found');
         return doc;
     }
+    async listImages(merchantId: string, productId: string) {
+        const doc = await this.findByMerchantOrThrow(merchantId, productId);
+        return { items: this.normalizeImages(doc.images || []) };
+    }
 
+    async addImages(merchantId: string, productId: string, imgs: { url: string; public_id: string }[]) {
+        const doc = await this.findByMerchantOrThrow(merchantId, productId);
+
+        const current = this.normalizeImages(doc.images || []);
+        const startPos = current.length;
+
+        const appended = imgs.map((x, idx) => ({
+            url: x.url,
+            public_id: x.public_id,
+            position: startPos + idx,
+        }));
+
+        doc.images = [...current, ...appended];
+        await doc.save();
+
+        return { items: this.normalizeImages(doc.images) };
+    }
+
+    async deleteImage(merchantId: string, productId: string, publicId: string) {
+        const doc = await this.findByMerchantOrThrow(merchantId, productId);
+
+        const exists = (doc.images || []).some((i) => i.public_id === publicId);
+        if (!exists) throw new NotFoundException('Image not found');
+
+        doc.images = (doc.images || []).filter((i) => i.public_id !== publicId);
+        doc.images = this.normalizeImages(doc.images || []);
+        await doc.save();
+
+        return { items: doc.images };
+    }
+
+    async reorderImages(merchantId: string, productId: string, orderedPublicIds: string[]) {
+        const doc = await this.findByMerchantOrThrow(merchantId, productId);
+
+        const map = new Map((doc.images || []).map((i) => [i.public_id, i]));
+        if (orderedPublicIds.length !== (doc.images?.length ?? 0)) {
+            throw new BadRequestException('orderedPublicIds length mismatch');
+        }
+        for (const pid of orderedPublicIds) {
+            if (!map.has(pid)) throw new BadRequestException(`Invalid public_id: ${pid}`);
+        }
+
+        doc.images = orderedPublicIds.map((pid, idx) => ({
+            url: map.get(pid)!.url,
+            public_id: pid,
+            position: idx,
+        }));
+
+        await doc.save();
+        return { items: doc.images };
+    }
+    async findByMerchantOrThrow(merchantId: string, id: string) {
+        const doc = await this.productModel.findOne({
+            _id: new Types.ObjectId(id),
+            merchant_id: new Types.ObjectId(merchantId),
+            deleted_at: null,
+        });
+        if (!doc) throw new NotFoundException('Product not found');
+        return doc;
+    }
     async toggleAvailable(merchantId: string, id: string) {
         const doc = await this.productModel.findOne({
             _id: new Types.ObjectId(id),

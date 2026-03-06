@@ -17,134 +17,109 @@ export enum PromotionScope {
 export enum PromotionType {
   PERCENTAGE = 'percentage',
   FIXED_AMOUNT = 'fixed_amount',
-  FREE_SHIPPING = 'free_shipping',
 }
 
-export enum CampaignType {
-  NORMAL = 'normal',
-  FLASH_SALE = 'flash_sale',
-  DAILY_DEAL = 'daily_deal',
-  WEEKEND_DEAL = 'weekend_deal',
-  MONTHLY_EVENT = 'monthly_event',
+export enum PromotionApplyLevel {
+  ORDER = 'order',
+  PRODUCT = 'product',
+  CATEGORY = 'category',
+  SHIPPING = 'shipping',
 }
 
-@Schema({ collection: 'promotions', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
+@Schema({ _id: false })
+export class PromotionConditions {
+  @Prop({ type: Date })
+  valid_from?: Date;
+
+  @Prop({ type: Date })
+  valid_to?: Date;
+}
+export const PromotionConditionsSchema = SchemaFactory.createForClass(PromotionConditions);
+
+@Schema({
+  collection: 'promotions',
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+})
 export class Promotion {
   _id: Types.ObjectId;
 
-  @Prop({ type: String, enum: PromotionCreatedByType, required: true })
+  @Prop({ type: String, enum: PromotionCreatedByType, required: true, index: true })
   created_by_type: PromotionCreatedByType;
 
-  @Prop({ type: Types.ObjectId, ref: 'Merchant' })
-  merchant_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Merchant', default: null, index: true })
+  merchant_id: Types.ObjectId | null;
 
-  @Prop({ required: true })
+  @Prop({ required: true, trim: true })
   name: string;
 
-  @Prop()
+  @Prop({ default: '' })
   description: string;
 
-  @Prop()
-  banner_image_url: string;
-
-  @Prop({ type: String, enum: PromotionScope, required: true })
+  @Prop({ type: String, enum: PromotionScope, required: true, index: true })
   scope: PromotionScope;
 
   @Prop({ type: String, enum: PromotionType, required: true })
   type: PromotionType;
 
-  @Prop({ required: true })
+  @Prop({
+    type: String,
+    enum: PromotionApplyLevel,
+    default: PromotionApplyLevel.ORDER,
+    index: true,
+  })
+  apply_level: PromotionApplyLevel;
+
+  // targets (chỉ dùng khi PRODUCT/CATEGORY)
+  @Prop({ type: [Types.ObjectId], default: [] })
+  product_ids: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], default: [] })
+  category_ids: Types.ObjectId[];
+
+  @Prop({ required: true, min: 0 })
   discount_value: number;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, min: 0 })
   max_discount: number;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, min: 0 })
   min_order_amount: number;
 
-  @Prop({ type: String, enum: CampaignType, default: CampaignType.NORMAL })
-  campaign_type: CampaignType;
+  @Prop({ type: PromotionConditionsSchema, default: {} })
+  conditions: PromotionConditions;
 
-  @Prop({
-    type: {
-      countdown_enabled: Boolean,
-      show_remaining_qty: Boolean,
-      quantity_per_time_slot: {
-        type: [{
-          start_time: String,
-          end_time: String,
-          quantity: Number
-        }],
-        default: []
-      },
-      total_quantity: Number,
-      remaining_quantity: Number,
-      claimed_quantity: Number
-    },
-    default: {}
-  })
-  flash_sale_settings: {
-    countdown_enabled?: boolean;
-    show_remaining_qty?: boolean;
-    quantity_per_time_slot?: {
-      start_time: string;
-      end_time: string;
-      quantity: number;
-    }[];
-    total_quantity?: number;
-    remaining_quantity?: number;
-    claimed_quantity?: number;
-  };
-
-  @Prop({
-    type: {
-      valid_from: Date,
-      valid_to: Date,
-      time_slots: {
-        type: [{
-          start: String,
-          end: String
-        }],
-        default: []
-      },
-      applicable_days: [Number],
-      geo_fence: [String],
-      service_type: String,
-      applicable_merchants: [Types.ObjectId],
-      user_segment: String
-    },
-    default: {}
-  })
-  conditions: {
-    valid_from?: Date;
-    valid_to?: Date;
-    time_slots?: {
-      start: string;
-      end: string;
-    }[];
-    applicable_days?: number[];
-    geo_fence?: string[];
-    service_type?: string;
-    applicable_merchants?: Types.ObjectId[];
-    user_segment?: string;
-  };
-
-  @Prop({ default: 0 })
+  // giới hạn sử dụng (optional)
+  @Prop({ default: 0, min: 0 })
   total_usage_limit: number;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, min: 0 })
   per_user_limit: number;
 
-  @Prop({ default: 0 })
+  @Prop({ default: 0, min: 0 })
   current_usage: number;
+  // ====== ✅ Admin banner (Super Admin) ======
+  @Prop({ type: String, default: null })
+  banner_admin_url: string | null;
 
-  @Prop({ default: true })
+  @Prop({ type: String, default: null })
+  banner_admin_public_id: string | null;
+
+  // ====== ✅ Admin-only flag ======
+  @Prop({ default: false, index: true })
+  show_push_noti: boolean;
+
+  // banner
+  @Prop({ type: String, default: null })
+  banner_image_url: string | null;
+
+  @Prop({ type: String, default: null })
+  banner_image_public_id: string | null;
+
+  // flags
+  @Prop({ default: true, index: true })
   is_active: boolean;
 
-  @Prop({ default: false })
-  is_featured: boolean;
-
-  @Prop({ default: false })
+  @Prop({ default: false, index: true })
   show_as_popup: boolean;
 
   created_at: Date;
@@ -152,3 +127,14 @@ export class Promotion {
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);
+
+// ===== Indexes (gọn + đúng nhu cầu list/filter) =====
+PromotionSchema.index({ created_by_type: 1, merchant_id: 1, is_active: 1, created_at: -1 });
+PromotionSchema.index({ merchant_id: 1, apply_level: 1, is_active: 1, created_at: -1 });
+PromotionSchema.index({ merchant_id: 1, show_as_popup: 1, is_active: 1, created_at: -1 });
+PromotionSchema.index({ 'conditions.valid_from': 1, 'conditions.valid_to': 1 });
+
+// multikey index giúp query theo target (nếu có apply theo product/category nhiều)
+PromotionSchema.index({ product_ids: 1 });
+PromotionSchema.index({ category_ids: 1 });
+PromotionSchema.index({ created_by_type: 1, show_push_noti: 1, is_active: 1, created_at: -1 });

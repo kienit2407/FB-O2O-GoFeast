@@ -18,23 +18,44 @@ import { ProductsController } from './controllers/products.controller';
 import { ToppingsController } from './controllers/toppings.controller';
 import { ProductOptionsController } from './controllers/product-options.controller';
 import { CommonModule } from 'src/common/common.module';
+import { MerchantsController } from './controllers/merchants.controller';
+import { MerchantsPublicController } from './controllers/merchants-public.controller';
+import { MerchantsPublicService } from './services/merchants-public.service';
+import { PromotionsModule } from '../promotions/promotions.module';
+import { GeoModule } from '../geo/geo.module';
+import { Promotion, PromotionSchema } from '../promotions/schemas';
+import { FavoritesModule } from '../favorites/favorites.module';
+import { BenefitsModule } from '../benefits/benefits.module';
+import { CartModule } from '../carts/cart.module';
+import { ProductsPublicService } from './services/products-public.service';
+import { ProductsPublicController } from './controllers/products-public.controller';
 
 @Module({
   imports: [
     CommonModule,
+    GeoModule,
+    PromotionsModule,
+    CartModule,
+    FavoritesModule,     // Giả sử chứa MerchantFavoritesService
+    BenefitsModule,      // Giả sử chứa BenefitsUsageService
     MongooseModule.forFeature([
       { name: Merchant.name, schema: MerchantSchema },
       { name: Category.name, schema: CategorySchema },
       { name: Product.name, schema: ProductSchema },
       { name: Topping.name, schema: ToppingSchema },
       { name: ProductOption.name, schema: ProductOptionSchema },
+      { name: Promotion.name, schema: PromotionSchema },
     ]),
+
   ],
   controllers: [
     CategoriesController,
     ProductsController,
     ToppingsController,
     ProductOptionsController,
+    MerchantsController,
+    MerchantsPublicController,
+    ProductsPublicController
   ],
   providers: [
     MerchantsService,
@@ -42,6 +63,8 @@ import { CommonModule } from 'src/common/common.module';
     CategoriesService,
     ProductsService,
     ProductOptionsService,
+    MerchantsPublicService,
+    ProductsPublicService
   ],
   exports: [MerchantsService, ToppingsService, CategoriesService, ProductsService, ProductOptionsService],
 })

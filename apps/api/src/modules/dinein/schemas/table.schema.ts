@@ -34,8 +34,8 @@ export class Table {
   @Prop({ type: String, enum: TableStatus, default: TableStatus.AVAILABLE })
   status: TableStatus;
 
-  @Prop({ type: Types.ObjectId, ref: 'TableSession' })
-  current_session_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'TableSession', default: null })
+  current_session_id: Types.ObjectId | null;
 
   @Prop({ default: true })
   is_active: boolean;
@@ -48,5 +48,5 @@ export class Table {
 }
 
 export const TableSchema = SchemaFactory.createForClass(Table);
-
+TableSchema.index({ current_session_id: 1 });
 TableSchema.index({ merchant_id: 1, table_number: 1 }, { unique: true });

@@ -21,6 +21,9 @@ import { RefreshSessionService } from './services/refresh-session-service';
 import { CloudinaryModule } from 'src/common/services/cloudinary.module';
 import { CommonModule } from 'src/common/common.module';
 import { JwtAccessStrategy } from './strategies';
+import { OAuthController } from './controllers/oauth.controller';
+import { CustomerModule } from '../customers/customer.module';
+import { DriversModule } from '../drivers/drivers.module';
 
 @Global()
 @Module({
@@ -28,6 +31,9 @@ import { JwtAccessStrategy } from './strategies';
     UsersModule,
     CommonModule,
     MerchantsModule,
+    CustomerModule,
+    CloudinaryModule,
+    DriversModule,
     // DriversModule, // TEMPORARILY DISABLED
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
@@ -47,6 +53,7 @@ import { JwtAccessStrategy } from './strategies';
     MerchantAuthController,
     CustomerAuthController,
     DriverAuthController,
+    OAuthController
   ],
   providers: [
     AuthService,

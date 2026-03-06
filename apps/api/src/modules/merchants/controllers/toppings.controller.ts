@@ -1,5 +1,7 @@
 import {
   Body, Controller, Delete, Get, Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors, Param,
+  BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -10,7 +12,18 @@ import { CreateToppingDto, UpdateToppingDto } from '../dtos/topping.dto';
 import { getMerchantOrThrow } from '../utils/get-merchant-or-throw';
 import { CloudinaryService } from 'src/common/services/cloudinary.service';
 import { JwtAuthGuard } from 'src/modules/auth';
-
+import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+const imageMulterOptions: MulterOptions = {
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file?.mimetype?.startsWith('image/')) {
+      return cb(new BadRequestException('Only image files are allowed') as any, false);
+    }
+    cb(null, true);
+  },
+};
 @Controller('merchant/menu/toppings')
 @UseGuards(JwtAuthGuard)
 export class ToppingsController {
@@ -18,7 +31,7 @@ export class ToppingsController {
     private readonly merchantsService: MerchantsService,
     private readonly toppingsService: ToppingsService,
     private readonly cloudinary: CloudinaryService,
-  ) {}
+  ) { }
 
   @Get()
   async list(
@@ -33,52 +46,109 @@ export class ToppingsController {
     });
   }
 
+  // ✅ CREATE: POST /merchant/menu/toppings (multipart: fields + image)
   @Post()
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', imageMulterOptions))
   async create(
     @CurrentUser() user: any,
-    @Body() dto: CreateToppingDto,
+    @Body() body: any,
     @UploadedFile() image?: Express.Multer.File,
   ) {
     const merchant = await getMerchantOrThrow(this.merchantsService, user.sub);
 
-    let image_url: string | undefined;
+    // vì multipart => body là string, parse nhẹ cho đúng type
+    const payload = {
+      ...body,
+      price: body?.price !== undefined ? Number(body.price) : undefined,
+      max_quantity: body?.max_quantity !== undefined ? Number(body.max_quantity) : undefined,
+      sort_order: body?.sort_order !== undefined ? Number(body.sort_order) : undefined,
+      is_available: body?.is_available !== undefined ? body.is_available === 'true' || body.is_available === '1' : undefined,
+      is_active: body?.is_active !== undefined ? body.is_active === 'true' || body.is_active === '1' : undefined,
+    };
+
+    const dto = plainToInstance(CreateToppingDto, payload);
+    const errors = validateSync(dto, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length) throw new BadRequestException(errors);
+
+    let image_url: string | null = null;
+    let image_public_id: string | null = null;
+
     if (image) {
       const up = await this.cloudinary.uploadImage(image, `merchants/${merchant._id}/toppings`);
-      image_url = up.secure_url || up.url;
+      image_url = up.secure_url || up.url || null;
+      image_public_id = up.public_id || null;
     }
 
     return this.toppingsService.create({
       merchant_id: merchant._id,
       ...dto,
-      ...(image_url ? { image_url } : {}),
+      image_url,
+      image_public_id,
     });
   }
 
+  // ✅ UPDATE: PATCH /merchant/menu/toppings/:id (multipart: fields + image)
   @Patch(':id')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', imageMulterOptions))
   async update(
     @CurrentUser() user: any,
     @Param('id') id: string,
-    @Body() dto: UpdateToppingDto,
+    @Body() body: any,
     @UploadedFile() image?: Express.Multer.File,
   ) {
     const merchant = await getMerchantOrThrow(this.merchantsService, user.sub);
 
-    // scope check: topping must belong to merchant
     const top = await this.toppingsService.findById(id);
     if (!top || top.merchant_id.toString() !== merchant._id.toString()) {
-      // tránh leak thông tin
-      throw new Error('Topping not found');
+      throw new NotFoundException('Topping not found');
     }
 
-    let image_url: string | undefined;
+    const removeImage = body?.remove_image === '1' || body?.remove_image === 'true';
+
+    const payload = {
+      ...body,
+      price: body?.price !== undefined ? Number(body.price) : undefined,
+      max_quantity: body?.max_quantity !== undefined ? Number(body.max_quantity) : undefined,
+      sort_order: body?.sort_order !== undefined ? Number(body.sort_order) : undefined,
+      is_available: body?.is_available !== undefined ? body.is_available === 'true' || body.is_available === '1' : undefined,
+      is_active: body?.is_active !== undefined ? body.is_active === 'true' || body.is_active === '1' : undefined,
+    };
+
+    const dto = plainToInstance(UpdateToppingDto, payload);
+    const errors = validateSync(dto, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length) throw new BadRequestException(errors);
+
+    // ✅ nếu user upload ảnh mới => xoá ảnh cũ rồi upload ảnh mới
     if (image) {
+      if (top.image_public_id) {
+        await this.cloudinary.deleteImage?.(top.image_public_id).catch(() => { });
+      }
+
       const up = await this.cloudinary.uploadImage(image, `merchants/${merchant._id}/toppings`);
-      image_url = up.secure_url || up.url;
+      const image_url = up.secure_url || up.url || null;
+      const image_public_id = up.public_id || null;
+
+      return this.toppingsService.updateById(id, {
+        ...dto,
+        image_url,
+        image_public_id,
+      });
     }
 
-    return this.toppingsService.updateById(id, { ...dto, ...(image_url ? { image_url } : {}) });
+    // (tuỳ chọn) xoá ảnh nếu FE gửi remove_image=1
+    if (removeImage) {
+      if (top.image_public_id) {
+        await this.cloudinary.deleteImage?.(top.image_public_id).catch(() => { });
+      }
+      return this.toppingsService.updateById(id, {
+        ...dto,
+        image_url: null,
+        image_public_id: null,
+      });
+    }
+
+    // không upload ảnh => chỉ update text/price
+    return this.toppingsService.updateById(id, dto);
   }
 
   @Patch(':id/toggle-available')

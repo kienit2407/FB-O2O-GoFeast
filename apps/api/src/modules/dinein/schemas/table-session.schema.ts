@@ -5,9 +5,11 @@ export type TableSessionDocument = TableSession & Document;
 
 export enum TableSessionStatus {
   ACTIVE = 'active',
-  COMPLETED = 'completed',
+  CLOSING = 'closing',     // ✅ xin bill
+  COMPLETED = 'completed', // ✅ đã thanh toán
   CANCELLED = 'cancelled',
 }
+
 
 @Schema({ collection: 'table_sessions', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class TableSession {
@@ -19,8 +21,8 @@ export class TableSession {
   @Prop({ type: Types.ObjectId, ref: 'Merchant', required: true })
   merchant_id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  customer_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  customer_id: Types.ObjectId | null;
 
   @Prop()
   guest_name: string;
@@ -28,11 +30,11 @@ export class TableSession {
   @Prop({ type: String, enum: TableSessionStatus, default: TableSessionStatus.ACTIVE })
   status: TableSessionStatus;
 
-  @Prop()
+  @Prop({ default: () => new Date() })
   started_at: Date;
 
-  @Prop()
-  ended_at: Date;
+  @Prop({ type: Date, default: null })
+  ended_at: Date | null;
 
   @Prop({ default: 0 })
   total_amount: number;

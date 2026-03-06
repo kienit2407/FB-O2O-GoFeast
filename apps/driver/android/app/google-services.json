@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "230836006855",
+    "project_id": "go-feast",
+    "storage_bucket": "go-feast.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:230836006855:android:5dc9c3da3058f0945273e2",
+        "android_client_info": {
+          "package_name": "com.example.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBINr62-w3BWLpVwK-qtu8XFfi9ExvgWYM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:230836006855:android:85e0eb438959fc8e5273e2",
+        "android_client_info": {
+          "package_name": "com.fabo2o.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBINr62-w3BWLpVwK-qtu8XFfi9ExvgWYM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,115 +1,188 @@
 import {
   Controller,
   Post,
+  Patch,
   Body,
-  Res,
   Req,
   UseGuards,
   HttpCode,
   HttpStatus,
+  Get,
+  UnauthorizedException,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  UploadedFiles,
 } from '@nestjs/common';
-import type { Response, Request } from 'express';
 import { AuthService } from '../services/auth.service';
-import { TokenService } from '../services/token.service';
 import { Client } from '../decorators/client.decorator';
 import { Roles } from '../decorators/roles.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { ClientGuard } from '../guards/client.guard';
-import { REFRESH_COOKIE_NAME, ClientApp } from '../common/auth.constants';
+import { OptionalJwtAuthGuard } from '../guards';
+import { RegisterDeviceDto } from 'src/modules/users/dto/register-device.dto';
+import { DriverOnboardingDraftDto } from 'src/modules/drivers/dtos/driver-onboarding-draft.dto';
+import { DriverOnboardingSubmitDto } from 'src/modules/drivers/dtos/driver-onboarding-submit.dto';
+import type { ClientApp } from '../common/auth.constants';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { CloudinaryService } from 'src/common/services/cloudinary.service';
+import { DriverProfilesService } from 'src/modules/drivers/services/driver-profiles.service';
 
 @Controller('auth/driver')
 @Client('driver_mobile')
 export class DriverAuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly tokenService: TokenService,
-  ) {}
+  constructor(private readonly authService: AuthService, private readonly cloudinaryService: CloudinaryService, private readonly driverProfilesService: DriverProfilesService,) { }
 
-  @Post('login-otp')
-  @HttpCode(HttpStatus.OK)
-  async loginOtp(
-    @Body() dto: { phone: string; otp: string },
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request,
-  ) {
-    const app: ClientApp = 'driver_mobile';
-    const deviceId = req.headers['x-device-id'] as string;
-
-    const result = await this.authService.loginDriverOtp(dto, { app, deviceId });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], result.refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/driver/refresh',
-    });
-
-    return { data: result };
-  }
-
-  @Post('register-otp')
-  async registerOtp(
-    @Body() dto: { phone: string; otp: string; full_name: string },
-    @Res({ passthrough: true }) res: Response,
-    @Req() req: Request,
-  ) {
-    const app: ClientApp = 'driver_mobile';
-    const deviceId = req.headers['x-device-id'] as string;
-
-    const result = await this.authService.registerDriverOtp(dto, { app, deviceId });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], result.refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/driver/refresh',
-    });
-
-    return { data: result };
-  }
-
+  // ========= DEVICE REGISTER (giống customer) =========
+  @Post('device/register')
   @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
   @Roles('driver')
+  @HttpCode(HttpStatus.OK)
+  async registerDevice(@Req() req: any, @Body() dto: RegisterDeviceDto) {
+    await this.authService.registerDriverDevice(req.user.userId, dto);
+    return { success: true };
+  }
+
+  // ========= REFRESH (body refreshToken, giống customer) =========
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+  async refresh(@Body() dto: { refreshToken: string }) {
+    if (!dto?.refreshToken) throw new UnauthorizedException('Missing refreshToken');
     const app: ClientApp = 'driver_mobile';
-    const user = req.user;
-
-    const { access_token } = await this.tokenService.signAccessToken({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      aud: app,
-      sid: user.sid,
-    });
-
-    const { refresh_token } = await this.tokenService.signRefreshToken({
-      userId: user.userId,
-      email: user.email,
-      role: user.role,
-      aud: app,
-      sid: user.sid,
-    });
-
-    res.cookie(REFRESH_COOKIE_NAME[app], refresh_token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: true,
-      path: '/auth/driver/refresh',
-    });
-
-    return { data: { access_token } };
+    const data = await this.authService.refreshDriverMobile(dto.refreshToken, app);
+    return { success: true, data }; // { accessToken, refreshToken }
   }
 
+  // ========= ME =========
+  @Get('me')
+  @UseGuards(OptionalJwtAuthGuard)
+  async me(@Req() req: any) {
+    if (!req.user) return { success: true, data: null };
+    const data = await this.authService.getMeDriver(req.user.userId);
+    return { success: true, data };
+  }
+
+  // ========= ONBOARDING: save draft (step-by-step) =========
+  @Post('upload')
   @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
   @Roles('driver')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 8 * 1024 * 1024 }, // 8MB (tuỳ)
+    }),
+  )
+  async upload(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { folder?: string },
+  ) {
+    if (!file) throw new BadRequestException('Missing file');
+
+    // FE đang gửi "folder"
+    const folderKey = body?.folder ?? 'misc';
+    const folder = `drivers/${req.user.userId}/${folderKey}`;
+
+    const result = await this.cloudinaryService.uploadImage(file, folder);
+    const url = (result as any)?.secure_url ?? (result as any)?.url;
+    if (!url) throw new BadRequestException('Upload failed');
+
+    // ✅ chỉ trả url, không đụng DB ở đây
+    return { success: true, data: { url } };
+  }
+  // ✅ NEW: SUBMIT 1 PHÁT (multipart)
+  @Post('onboarding/submit-multipart')
+  @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
+  @Roles('driver')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'idCardFront', maxCount: 1 },
+        { name: 'idCardBack', maxCount: 1 },
+        { name: 'licenseImage', maxCount: 1 },
+        { name: 'vehicleImage', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+        limits: {
+          fileSize: 8 * 1024 * 1024, // 8MB / file
+          files: 4,
+        },
+      },
+    ),
+  )
+  async submitMultipart(
+    @Req() req: any,
+    @UploadedFiles()
+    files: {
+      idCardFront?: Express.Multer.File[];
+      idCardBack?: Express.Multer.File[];
+      licenseImage?: Express.Multer.File[];
+      vehicleImage?: Express.Multer.File[];
+    },
+    @Body() body: any,
+  ) {
+    const userId = req.user.userId;
+
+    // helper: lấy url từ file upload hoặc fallback url từ body (nếu đã có sẵn)
+    const getUrl = async (key: string, file?: Express.Multer.File) => {
+      if (file) {
+        const folder = `drivers/${userId}/${key}`;
+        const result = await this.cloudinaryService.uploadImage(file, folder);
+        const url = (result as any)?.secure_url ?? (result as any)?.url;
+        if (!url) throw new BadRequestException(`Upload failed for ${key}`);
+        return url.toString();
+      }
+      // fallback nếu FE gửi url cũ (trường hợp resubmit không chọn lại ảnh)
+      const fallback = body?.[key];
+      if (typeof fallback === 'string' && fallback.trim().length) return fallback.trim();
+      throw new BadRequestException(`Missing image for ${key}`);
+    };
+
+    // map field names: file field -> dto url field
+    const idCardFrontUrl = await getUrl('idCardFrontUrl', files?.idCardFront?.[0]);
+    const idCardBackUrl = await getUrl('idCardBackUrl', files?.idCardBack?.[0]);
+    const licenseImageUrl = await getUrl('licenseImageUrl', files?.licenseImage?.[0]);
+    const vehicleImageUrl = await getUrl('vehicleImageUrl', files?.vehicleImage?.[0]);
+
+    const payload: DriverOnboardingSubmitDto = {
+      phone: (body?.phone ?? '').toString().trim(),
+      idCardNumber: (body?.idCardNumber ?? '').toString().trim(),
+      idCardFrontUrl,
+      idCardBackUrl,
+
+      licenseNumber: (body?.licenseNumber ?? '').toString().trim(),
+      licenseType: (body?.licenseType ?? '').toString(), // A1/A2/B1/B2
+      licenseImageUrl,
+      licenseExpiry: (body?.licenseExpiry ?? '').toString(),
+
+      vehicleBrand: (body?.vehicleBrand ?? '').toString(),
+      vehicleModel: (body?.vehicleModel ?? '').toString().trim(),
+      vehiclePlate: (body?.vehiclePlate ?? '').toString().trim(),
+      vehicleImageUrl,
+    };
+    const data = await this.authService.submitDriverOnboarding(userId, payload);
+    return { success: true, data };
+  }
+  // ========= ONBOARDING: submit (step 5 nộp) =========
+  @Post('onboarding/submit')
+  @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
+  @Roles('driver')
+  @HttpCode(HttpStatus.OK)
+  async submitOnboarding(@Req() req: any, @Body() dto: DriverOnboardingSubmitDto) {
+    const data = await this.authService.submitDriverOnboarding(req.user.userId, dto);
+    return { success: true, data };
+  }
+
+  // ========= LOGOUT =========
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Res({ passthrough: true }) res: Response) {
-    const app: ClientApp = 'driver_mobile';
-    res.clearCookie(REFRESH_COOKIE_NAME[app], { path: '/auth/driver/refresh' });
-    return { message: 'Logged out successfully' };
+  async logout(@Body() dto: { refreshToken?: string }) {
+    await this.authService.logoutDriverMobile(dto?.refreshToken);
+    return { success: true };
   }
 }

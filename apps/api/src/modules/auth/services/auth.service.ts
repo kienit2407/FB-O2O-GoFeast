@@ -6,11 +6,30 @@ import { TokenService } from './token.service';
 import { ClientApp, Role } from '../common/auth.constants';
 import * as bcrypt from 'bcryptjs';
 import axios from 'axios';
-
+import { RefreshSessionService } from './refresh-session-service';
+import { UserDevice } from 'src/modules/users/schemas/user-device.schema';
+import { UserDevicesService } from '../../users/services/user-devices.service';
+import { CustomerProfile } from 'src/modules/customers/schemas';
+import { CustomerProfilesService } from 'src/modules/customers/services/customer-profile.service';
+import { DriverProfilesService } from 'src/modules/drivers/services/driver-profiles.service';
+import { DriverOnboardingSubmitDto } from 'src/modules/drivers/dtos/driver-onboarding-submit.dto';
+import { DriverOnboardingDraftDto } from 'src/modules/drivers/dtos/driver-onboarding-draft.dto';
+function safeFullName(fullName: string | undefined, email: string) {
+  const cleaned = (fullName ?? '').replace(/\bundefined\b/gi, '').trim();
+  return cleaned.length ? cleaned : email.split('@')[0];
+}
 export interface AuthContext {
   app: ClientApp;
-  deviceId: string;
+  deviceId: string | null;
 }
+// shape từ GoogleStrategy/GithubStrategy.validate()
+type OAuthUser = {
+  provider: 'google' | 'github';
+  provider_id: string;
+  email?: string;
+  full_name?: string;
+  avatar_url?: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -19,8 +38,414 @@ export class AuthService {
     private usersService: UsersService,
     private configService: ConfigService,
     private tokenService: TokenService,
-  ) {}
+    private refreshSessionService: RefreshSessionService,
+    private userDevicesService: UserDevicesService,
+    private customerProfilesService: CustomerProfilesService,
+    private driverProfilesService: DriverProfilesService,
 
+  ) { }
+  // ===== DRIVER ME =====
+  async getMeDriver(userId: string) {
+    const user = await this.getUserSafe(userId);
+    const profile = await this.driverProfilesService.findByUserId(userId);
+
+    return {
+      ...user,
+      driver_profile: profile ?? null,
+      verification_status: profile?.verification_status ?? 'draft', // ✅ thêm field tiện cho FE
+    };
+  }
+
+  // ===== DRIVER DEVICE REGISTER =====
+  async registerDriverDevice(
+    userId: string,
+    dto: { deviceId: string; platform: string; fcmToken?: string | null },
+  ) {
+    await this.userDevicesService.upsertDevice({
+      userId,
+      deviceId: dto.deviceId,
+      platform: dto.platform,
+      fcmToken: dto.fcmToken ?? null,
+    });
+  }
+
+  // ===== DRIVER OAUTH LOGIN (giống customer, nhưng role=driver + ensure driver_profile) =====
+  async loginDriverOAuth(oauth: any, ctx: AuthContext) {
+    if (!oauth?.provider || !oauth?.provider_id) {
+      throw new BadRequestException('Invalid oauth payload');
+    }
+
+    const email = oauth.email?.trim();
+    if (!email) throw new BadRequestException('Missing email from provider');
+
+    let user = await this.usersService.findByEmail(email);
+
+    if (!user) {
+      user = await this.usersService.create({
+        email,
+        avatar_url: oauth.avatar_url ?? null,
+        full_name: safeFullName(oauth.full_name, email),
+        role: 'driver',
+        status: 'pending', // driver cần onboard + duyệt
+        auth_methods: [oauth.provider],
+        oauth_providers: [{ provider: oauth.provider, provider_id: oauth.provider_id, email }],
+      } as any);
+    } else {
+      const doc: any = user;
+
+      // Email đã thuộc user khác role -> chặn để tránh “1 email 2 app”
+      if (doc.role && doc.role !== 'driver') {
+        throw new BadRequestException('Email already used by another role');
+      }
+
+      const authMethods = new Set([...(doc.auth_methods ?? []), oauth.provider]);
+      const providers = Array.isArray(doc.oauth_providers) ? doc.oauth_providers : [];
+
+      const idx = providers.findIndex((p: any) => p.provider === oauth.provider);
+      const row = { provider: oauth.provider, provider_id: oauth.provider_id, email };
+
+      if (idx >= 0) providers[idx] = { ...providers[idx], ...row };
+      else providers.push(row);
+
+      const patch: any = {
+        role: 'driver',
+        auth_methods: Array.from(authMethods),
+        oauth_providers: providers,
+      };
+
+      if (!doc.avatar_url && oauth.avatar_url) patch.avatar_url = oauth.avatar_url;
+      if (!doc.full_name || String(doc.full_name).includes('undefined')) {
+        patch.full_name = safeFullName(oauth.full_name, email);
+      }
+
+      user = await this.usersService.update(doc._id.toString(), patch);
+    }
+
+    const userDoc: any = user;
+    const uid = userDoc._id.toString();
+
+    // ensure driver profile
+    await this.driverProfilesService.ensureForUser(uid);
+
+    const sid = (await this.refreshSessionService.createSession({
+      userId: uid,
+      deviceId: ctx.deviceId ?? undefined,
+      aud: ctx.app,
+      role: 'driver',
+    })) as string;
+
+    const { access_token } = await this.tokenService.signAccessToken({
+      userId: uid,
+      email: userDoc.email,
+      role: 'driver' as Role,
+      aud: ctx.app,
+      sid,
+    });
+
+    const { refresh_token } = await this.tokenService.signRefreshToken({
+      userId: uid,
+      email: userDoc.email,
+      role: 'driver' as Role,
+      aud: ctx.app,
+      sid,
+    });
+
+    return { userId: uid, accessToken: access_token, refreshToken: refresh_token };
+  }
+
+  // ===== DRIVER MOBILE REFRESH (body refreshToken, rotate sid, giống customer) =====
+  async refreshDriverMobile(refreshToken: string, app: ClientApp) {
+    const payload: any = await this.tokenService.verifyRefreshToken(refreshToken);
+
+    if (payload?.type !== 'refresh') throw new UnauthorizedException('Invalid refresh token type');
+    if (payload?.aud !== app) throw new UnauthorizedException('Invalid aud');
+    if (payload?.role !== 'driver') throw new UnauthorizedException('Invalid role');
+
+    const userId = payload.sub as string | undefined;
+    const sid = payload.sid as string | undefined;
+    if (!userId || !sid) throw new UnauthorizedException('Missing sub/sid');
+
+    const session = await this.refreshSessionService.getSession(sid);
+    if (!session) throw new UnauthorizedException('Refresh session revoked');
+
+    const newSid = (await this.refreshSessionService.rotateSession(sid, {
+      userId,
+      aud: app,
+      role: 'driver',
+    })) as string;
+
+    const u = await this.usersService.findById(userId);
+    if (!u) throw new UnauthorizedException('User not found');
+    const userDoc: any = u;
+
+    const { access_token } = await this.tokenService.signAccessToken({
+      userId,
+      email: userDoc.email,
+      role: 'driver' as Role,
+      aud: app,
+      sid: newSid,
+    });
+
+    const { refresh_token } = await this.tokenService.signRefreshToken({
+      userId,
+      email: userDoc.email,
+      role: 'driver' as Role,
+      aud: app,
+      sid: newSid,
+    });
+
+    return { accessToken: access_token, refreshToken: refresh_token };
+  }
+
+  // ===== DRIVER LOGOUT (revoke sid by refreshToken) =====
+  async logoutDriverMobile(refreshToken?: string) {
+    if (!refreshToken) return;
+    try {
+      const payload: any = await this.tokenService.verifyRefreshToken(refreshToken);
+      const sid = payload?.sid as string | undefined;
+      if (sid) await this.refreshSessionService.revokeSession(sid);
+    } catch {
+      // ignore
+    }
+  }
+
+
+  // ===== ONBOARDING SUBMIT (step 5) =====
+  async submitDriverOnboarding(userId: string, dto: DriverOnboardingSubmitDto) {
+    // phone required
+    const existing = await this.usersService.findByPhone(dto.phone);
+    if (existing && (existing as any)._id.toString() !== userId) {
+      throw new BadRequestException('Phone already registered');
+    }
+    await this.usersService.update(userId, { phone: dto.phone, status: 'pending' } as any);
+
+    const patch: any = {
+      id_card_number: dto.idCardNumber,
+      id_card_front_url: dto.idCardFrontUrl,
+      id_card_back_url: dto.idCardBackUrl,
+
+      license_number: dto.licenseNumber,
+      license_type: dto.licenseType,
+      license_image_url: dto.licenseImageUrl,
+      license_expiry: new Date(dto.licenseExpiry),
+
+      vehicle_brand: dto.vehicleBrand,
+      vehicle_model: dto.vehicleModel,
+      vehicle_plate: dto.vehiclePlate,
+      vehicle_image_url: dto.vehicleImageUrl,
+    };
+
+    await this.driverProfilesService.ensureForUser(userId);
+    const profile = await this.driverProfilesService.submit(userId, patch);
+
+    return {
+      verification_status: profile.verification_status,
+      driver_profile: profile,
+    };
+  }
+  // ✅ helper trả user safe cho FE
+  async getUserSafe(userId: string) {
+    const u = await this.usersService.findById(userId);
+    if (!u) throw new UnauthorizedException('User not found');
+    const doc: any = u;
+    return {
+      id: doc._id?.toString(),
+      email: doc.email ?? null,
+      phone: doc.phone ?? null,
+      full_name: doc.full_name ?? null,
+      status: doc.status ?? null, // ✅ thêm
+      role: doc.role,
+      avatar_url: doc.avatar_url ?? null,
+    };
+  }
+  async updateCustomerPhone(userId: string, rawPhone: string) {
+    const phone = (rawPhone ?? '').replace(/\D/g, '').trim();
+    if (!phone) throw new BadRequestException('Invalid phone');
+
+    // check trùng phone
+    const existing = await this.usersService.findByPhone(phone);
+    if (existing && (existing as any)._id.toString() !== userId) {
+      throw new BadRequestException('Phone already registered');
+    }
+
+    await this.usersService.update(userId, { phone } as any);
+
+    // trả về me để FE update state luôn (có kèm customer_profile)
+    return this.getMeCustomer(userId);
+  }
+  async getMeCustomer(userId: string) {
+    const user = await this.getUserSafe(userId);
+    const profile = await this.customerProfilesService.findByUserId(userId);
+
+    return {
+      ...user,
+      customer_profile: profile ?? null,
+    };
+  }
+  async registerCustomerDevice(userId: string, dto: { deviceId: string; platform: string; fcmToken?: string | null }) {
+    await this.userDevicesService.upsertDevice({
+      userId,
+      deviceId: dto.deviceId,
+      platform: dto.platform,
+      fcmToken: dto.fcmToken ?? null,
+    });
+  }
+  // =========================
+  // CUSTOMER OAUTH LOGIN
+  // =========================
+  async loginCustomerOAuth(oauth: OAuthUser, ctx: AuthContext) {
+    if (!oauth?.provider || !oauth?.provider_id) {
+      throw new BadRequestException('Invalid oauth payload');
+    }
+
+    // Google thường có email, GitHub có thể null -> bạn đã fallback ở GithubStrategy (email giả)
+    const email = oauth.email?.trim();
+    if (!email) throw new BadRequestException('Missing email from provider');
+
+    // 1) find user by email
+    let user = await this.usersService.findByEmail(email);
+
+    // 2) nếu chưa có thì create user (⚠️ phone unique index -> cần value unique)
+    if (!user) {
+      user = await this.usersService.create({
+        email,
+        // workaround để không vỡ unique index của phone (vì bạn đang để unique không sparse)
+        // phone: ``,
+        avatar_url: oauth.avatar_url ?? null,
+        full_name: safeFullName(oauth.full_name, email),
+        role: 'customer',
+        status: 'active',
+        auth_methods: [oauth.provider],
+        oauth_providers: [
+          { provider: oauth.provider, provider_id: oauth.provider_id, email },
+        ],
+      } as any);
+    } else {
+      const doc: any = user;
+
+      const authMethods = new Set([...(doc.auth_methods ?? []), oauth.provider]);
+      const providers = Array.isArray(doc.oauth_providers) ? doc.oauth_providers : [];
+
+      const idx = providers.findIndex((p: any) => p.provider === oauth.provider);
+      const row = { provider: oauth.provider, provider_id: oauth.provider_id, email };
+
+      if (idx >= 0) providers[idx] = { ...providers[idx], ...row };
+      else providers.push(row);
+
+      const patch: any = {
+        auth_methods: Array.from(authMethods),
+        oauth_providers: providers,
+      };
+
+      if (!doc.avatar_url && oauth.avatar_url) patch.avatar_url = oauth.avatar_url;
+      if (!doc.full_name || String(doc.full_name).includes('undefined')) {
+        patch.full_name = safeFullName(oauth.full_name, email);
+      }
+
+      user = await this.usersService.update(doc._id.toString(), patch);
+    }
+
+    const userDoc: any = user;
+    const uid = userDoc._id.toString();
+    await this.customerProfilesService.ensureForUser(uid);
+    // 3) create Redis session sid
+    const sid = (await this.refreshSessionService.createSession({
+      userId: uid,
+      deviceId: ctx.deviceId ?? undefined,
+      aud: ctx.app,
+      role: 'customer',
+    })) as string;
+
+    // 4) sign tokens (aud customer_mobile + sid)
+    const { access_token } = await this.tokenService.signAccessToken({
+      userId: uid,
+      email: userDoc.email,
+      role: 'customer' as Role,
+      aud: ctx.app,
+      sid,
+    });
+
+    const { refresh_token } = await this.tokenService.signRefreshToken({
+      userId: uid,
+      email: userDoc.email,
+      role: 'customer' as Role,
+      aud: ctx.app,
+      sid,
+    });
+
+    // ✅ key đồng nhất cho mobile
+    return {
+      userId: uid,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+    };
+  }
+
+  // =========================
+  // CUSTOMER MOBILE REFRESH (body refreshToken)
+  // =========================
+  async refreshCustomerMobile(refreshToken: string, app: ClientApp) {
+    const payload: any = await this.tokenService.verifyRefreshToken(refreshToken);
+
+    if (payload?.type !== 'refresh') throw new UnauthorizedException('Invalid refresh token type');
+    if (payload?.aud !== app) throw new UnauthorizedException('Invalid aud');
+    if (payload?.role !== 'customer') throw new UnauthorizedException('Invalid role');
+
+    const userId = payload.sub as string | undefined;
+    const sid = payload.sid as string | undefined;
+    if (!userId || !sid) throw new UnauthorizedException('Missing sub/sid');
+
+    // ✅ check session exists
+    const session = await this.refreshSessionService.getSession(sid);
+    if (!session) throw new UnauthorizedException('Refresh session revoked');
+
+    // ✅ rotate sid
+    const newSid = (await this.refreshSessionService.rotateSession(sid, {
+      userId,
+      aud: app,
+      role: 'customer',
+    })) as string;
+
+    const u = await this.usersService.findById(userId);
+    if (!u) throw new UnauthorizedException('User not found');
+    const userDoc: any = u;
+
+    const { access_token } = await this.tokenService.signAccessToken({
+      userId,
+      email: userDoc.email,
+      role: 'customer' as Role,
+      aud: app,
+      sid: newSid,
+    });
+
+    const { refresh_token } = await this.tokenService.signRefreshToken({
+      userId,
+      email: userDoc.email,
+      role: 'customer' as Role,
+      aud: app,
+      sid: newSid,
+    });
+
+    return {
+      accessToken: access_token,
+      refreshToken: refresh_token,
+    };
+  }
+
+  // =========================
+  // CUSTOMER LOGOUT (revoke by refreshToken)
+  // =========================
+  async logoutCustomerMobile(refreshToken?: string) {
+    if (!refreshToken) return;
+
+    try {
+      const payload: any = await this.tokenService.verifyRefreshToken(refreshToken);
+      const sid = payload?.sid as string | undefined;
+      if (sid) await this.refreshSessionService.revokeSession(sid);
+    } catch {
+      // ignore (logout vẫn OK)
+    }
+  }
   async findUserByEmail(email: string) {
     return this.usersService.findByEmail(email);
   }
@@ -52,20 +477,35 @@ export class AuthService {
 
   async validateUser(email: string, password: string): Promise<any> {
     const user = await this.usersService.findByEmail(email);
+
+    // User không tồn tại
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      console.log('[AuthService.validateUser] User not found:', email);
+      throw new BadRequestException('Merchant không tồn tại, vui lòng đăng ký');
     }
+
     const userDoc = user as any;
+
+    // User không có password (có thể đăng nhập bằng social)
     if (!userDoc.password_hash) {
-      throw new UnauthorizedException('Invalid credentials');
+      console.log('[AuthService.validateUser] No password_hash for user:', email);
+      throw new BadRequestException('Email hoặc mật khẩu không đúng');
     }
+
+    // Password sai
     const isPasswordValid = await bcrypt.compare(password, userDoc.password_hash);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      console.log('[AuthService.validateUser] Invalid password for user:', email);
+      throw new BadRequestException('Email hoặc mật khẩu không đúng');
     }
+
+    // User bị blocked
     if (userDoc.status === 'blocked') {
-      throw new UnauthorizedException('Account is blocked');
+      console.log('[AuthService.validateUser] User is blocked:', email, 'status:', userDoc.status);
+      throw new UnauthorizedException('Tài khoản bị khóa, vui lòng liên hệ hỗ trợ');
     }
+
+    console.log('[AuthService.validateUser] User validated successfully:', email, 'role:', userDoc.role, 'status:', userDoc.status);
     return user;
   }
 
@@ -82,27 +522,50 @@ export class AuthService {
     phone: string;
   }) {
     console.log('[AuthService.createMerchantUser] Starting for:', data.email);
-    const existingUser = await this.usersService.findByEmail(data.email);
-    if (existingUser) {
+
+    // Check email
+    const existingUserByEmail = await this.usersService.findByEmail(data.email);
+    if (existingUserByEmail) {
       console.log('[AuthService.createMerchantUser] Email already exists');
       throw new BadRequestException('Email đã được đăng ký');
+    }
+
+    // Check phone
+    const existingUserByPhone = await this.usersService.findByPhone(data.phone);
+    if (existingUserByPhone) {
+      console.log('[AuthService.createMerchantUser] Phone already exists:', data.phone);
+      throw new BadRequestException('Số điện thoại đã được sử dụng');
     }
 
     const password_hash = await bcrypt.hash(data.password, 10);
 
     console.log('[AuthService.createMerchantUser] Calling usersService.create...');
-    const user = await this.usersService.create({
-      email: data.email,
-      phone: data.phone,
-      password_hash,
-      full_name: data.full_name,
-      role: 'merchant',
-      status: 'pending',
-      auth_methods: ['password'],
-    } as any);
 
-    console.log('[AuthService.createMerchantUser] User created:', { id: (user as any)?._id, email: (user as any)?.email });
-    return user;
+    try {
+      const user = await this.usersService.create({
+        email: data.email,
+        phone: data.phone,
+        password_hash,
+        full_name: data.full_name,
+        role: 'merchant',
+        status: 'active',
+        auth_methods: ['password'],
+      } as any);
+
+      console.log('[AuthService.createMerchantUser] User created:', { id: (user as any)?._id, email: (user as any)?.email });
+      return user;
+    } catch (error: any) {
+      // Handle MongoDB duplicate key error
+      if (error.code === 11000) {
+        if (error.message.includes('phone')) {
+          throw new BadRequestException('Số điện thoại đã được sử dụng');
+        }
+        if (error.message.includes('email')) {
+          throw new BadRequestException('Email đã được đăng ký');
+        }
+      }
+      throw error;
+    }
   }
 
   async registerMerchant(data: any, ctx: AuthContext) {
@@ -204,7 +667,7 @@ export class AuthService {
 
     // For now, just find or create user
     let user = await this.usersService.findByPhone(data.phone);
-    
+
     if (!user) {
       user = await this.usersService.create({
         phone: data.phone,
@@ -297,7 +760,7 @@ export class AuthService {
   async loginDriverOtp(data: { phone: string; otp: string }, ctx: AuthContext) {
     // TODO: Implement OTP verification
     let user = await this.usersService.findByPhone(data.phone);
-    
+
     if (!user) {
       throw new UnauthorizedException('Driver not found');
     }

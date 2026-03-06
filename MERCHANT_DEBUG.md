@@ -1,65 +1,101 @@
-# Merchant API Debug Guide
+Dây là hiện tại là cây cấu trúc thư mục của mình. cho mình hỏi bây giờ mình muốn xây dựng 1 cấu trúc theo first-feature layer cho app customer giống shoppee food thì phải xây dựng như thế nào: - riverpod (phiên bản mới nhất theo cách mới nhất theo docs của riverpod - riverpod: ^3.2.1) - dùng go_router (go_router: ^17.1.0). => lưu ý là bạn chri cần gợi ý mình xây dựng cái thư mục như nào cho đúng chứ khong dựa hoàn toàn vào thư mục hiện tại của mình. tại theo mình biết nếu provider nhét vào 1 file thì có sai hay khong. mình cũng có đính kèm 1 thư mục cart mình cũng khong biết vây là chuẩn chưa và đâyu là dự án cũ. cho nên mình mới nhờ bạn gợi ý để mình làm mới lại temeplate cho chuẩn khi sử dụng river pod. bạn cứ gợi ý đầy đủ chuẩn best-practice chuẩn senior dev flutter
 
-## Problem
-Khi gọi các route của merchant (categories, products, toppings, product-options), bị lỗi 403 Forbidden: "Merchant not found for this user"
+lib/
+  main.dart
+  app/
+    bootstrap.dart              # init storage, notification, location svc...
+    app.dart                    # MaterialApp.router + theme
+    router/
+      app_router.dart           # GoRouter + ShellRoute bottom nav
+      routes.dart               # route paths/names
+      guards.dart               # redirect dựa auth/kyc/verified
+    theme/
+      app_theme.dart
+      app_colors.dart
+    config/
+      env.dart                  # baseUrl, flavor, build mode
+  core/
+    network/
+      dio_client.dart
+      interceptors/
+        auth_interceptor.dart
+      endpoints.dart
+    storage/
+      token_storage.dart
+      device_id_storage.dart
+    realtime/
+      socket_client.dart        # connect, subscribe order events
+      realtime_events.dart
+    location/
+      location_service.dart     # get position, stream updates
+      background_tracker.dart   # start/stop background tracking
+    notifications/
+      push_service.dart         # FCM init, handlers
+      notification_payload.dart
+    permissions/
+      permission_service.dart
+    error/
+      app_exception.dart
+      error_mapper.dart
+    utils/
+      logger.dart
+      debounce.dart
+    shared/
+      widgets/
+      constants/
+      extensions/
+  features/
+    auth/
+      data/ domain/ application/ presentation/ routes.dart
+    kyc/
+      data/
+      application/              # submit docs, status provider
+      presentation/
+      routes.dart
+    availability/
+      application/
+        availability_controller.dart   # online/offline + accept_food_orders
+      presentation/
+        widgets/online_toggle.dart
+      routes.dart
+    dispatch/
+      application/
+        dispatch_controller.dart       # job offer queue, timeout accept
+      presentation/
+        pages/job_offer_page.dart
+        widgets/offer_card.dart
+      routes.dart
+    orders/
+      data/
+        models/
+        datasources/
+        repositories/
+      domain/
+        entities/
+        repositories/
+      application/
+        active_order_controller.dart   # state machine 1 đơn đang chạy
+        orders_list_controller.dart    # danh sách đơn
+      presentation/
+        pages/orders_page.dart         # tab "Đơn"
+        pages/order_detail_page.dart
+        widgets/
+      routes.dart
+    map/
+      application/
+        map_controller.dart            # marker, polyline, camera
+      presentation/
+        pages/map_page.dart
+        widgets/
+      routes.dart
+    earnings/
+      data/ domain/ application/ presentation/ routes.dart
+    profile/
+      data/ domain/ application/ presentation/ routes.dart
 
-## Root Cause
-1. **CurrentUser decorator** thiếu property `sub` - đã fix ✓
-2. **User chưa có merchant record** trong database
 
-## Solution
+Feature có từ 2 màn trở lên (vd: auth có login/otp/register/forgot…)
 
-### 1. Đã sửa `CurrentUser` decorator
-File: `apps/api/src/modules/auth/decorators/current-user.decorator`
-- Đã thêm `sub` vào interface và return object
-- Bây giờ decorator sẽ trả về cả `sub` và `userId`
+Feature có flow riêng (cart → checkout → payment)
 
-### 2. Tạo merchant cho user đang đăng nhập
-Đã thêm endpoint debug: `POST /merchant/menu/categories/debug/create-merchant`
-
-#### Cách 1: Sử dụng curl
-```bash
-# Thay YOUR_JWT_TOKEN với token thực tế của bạn
-curl -X POST "http://localhost:4000/merchant/menu/categories/debug/create-merchant" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json"
-```
-
-#### Cách 2: Sử dụng Postman/Insomnia
-```
-POST http://localhost:4000/merchant/menu/categories/debug/create-merchant
-Headers:
-  Authorization: Bearer YOUR_JWT_TOKEN
-  Content-Type: application/json
-```
-
-### 3. Test lại các endpoint sau khi có merchant
-
-Sau khi đã có merchant record, bạn có thể test:
-- `GET /merchant/menu/categories?includeInactive=1`
-- `GET /merchant/menu/products`
-- `GET /merchant/menu/toppings`
-- `GET /merchant/menu/products/:productId/options`
-
-## Script Test Automation
-
-Đã tạo script test tại `scripts/test-merchant-api.sh`
-
-Sửa JWT_TOKEN trong script và chạy:
-```bash
-chmod +x scripts/test-merchant-api.sh
-./scripts/test-merchant-api.sh
-```
-
-## Debugging
-
-Nếu vẫn gặp lỗi, kiểm tra server logs:
-- Log sẽ hiển thị khi tìm merchant
-- Kiểm tra xem user có merchant record chưa
-
-## Next Steps
-
-Sau khi đã có merchant và test thành công:
-1. Xóa endpoint debug `/debug/create-merchant`
-2. Thêm logic để tự tạo merchant khi user đăng ký lần đầu (nếu cần)
-3. Xóa các log debug trong MerchantsService
+Feature có nested route (order/:id, merchant/:id/menu…)

@@ -1,11 +1,24 @@
-import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Delete, UseGuards, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { UsersService } from '../services/users.service';
 import { CreateUserDto } from '../dto/create-user.dto';
+import { AuthService, JwtAuthGuard } from 'src/modules/auth';
+import { UpdatePhoneDto } from '../dto/update-phone.dto';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
-
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService
+    ,
+  ) { }
+  @Put('phone')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async updatePhone(@Req() req: any, @Body() dto: UpdatePhoneDto) {
+    const userId = req.user.userId;
+    const data = await this.authService.updateCustomerPhone(userId, dto.phone);
+    return { success: true, data };
+  }
   @Post()
   create(@Body() createUserDto: CreateUserDto) {
     return this.usersService.create(createUserDto);

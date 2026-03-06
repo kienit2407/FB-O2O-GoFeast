@@ -16,9 +16,6 @@ export class Category {
   @Prop()
   description: string;
 
-  @Prop()
-  image_url: string;
-
   @Prop({ default: 0 })
   sort_order: number;
 

@@ -14,15 +14,16 @@ export class Topping {
   @Prop({ type: String, default: null })
   description?: string | null;
 
-  @Prop({ type: String, default: null })
-  image_url?: string | null;
-
   @Prop({ type: Number, required: true, min: 0 })
   price: number;
 
   @Prop({ type: Boolean, default: true })
   is_available: boolean;
+  @Prop({ type: String, default: null })
+  image_url: string | null;
 
+  @Prop({ type: String, default: null })
+  image_public_id: string | null;
   @Prop({ type: Boolean, default: true })
   is_active: boolean;
 

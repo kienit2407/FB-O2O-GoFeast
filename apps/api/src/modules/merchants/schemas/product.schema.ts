@@ -3,6 +3,12 @@ import { Document, Types } from 'mongoose';
 
 export type ProductDocument = Product & Document;
 
+export class ProductImage {
+  url: string;
+  public_id: string;
+  position: number;
+}
+
 @Schema({ collection: 'products', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class Product {
   _id: Types.ObjectId;
@@ -16,11 +22,21 @@ export class Product {
   @Prop({ required: true })
   name: string;
 
-  @Prop()
+  @Prop({ default: '' })
   description: string;
 
-  @Prop({ type: [String], default: [] })
-  image_urls: string[];
+  // ✅ ONLY SOURCE OF TRUTH
+  @Prop({
+    type: [
+      {
+        url: { type: String, required: true },
+        public_id: { type: String, required: true },
+        position: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+  })
+  images: ProductImage[];
 
   @Prop({ required: true, min: 0 })
   base_price: number;
@@ -43,7 +59,9 @@ export class Product {
   @Prop({ default: 0 })
   average_rating: number;
 
-  // Toppings áp dụng cho sản phẩm này
+  @Prop({ default: 0 })
+  total_reviews: number;
+  
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Topping' }], default: [] })
   topping_ids: Types.ObjectId[];
 
@@ -58,4 +76,5 @@ export const ProductSchema = SchemaFactory.createForClass(Product);
 
 ProductSchema.index({ merchant_id: 1, is_active: 1 });
 ProductSchema.index({ category_id: 1, is_active: 1 });
-ProductSchema.index({ 'topping_ids': 1 });
+ProductSchema.index({ topping_ids: 1 });
+ProductSchema.index({ 'images.public_id': 1 });

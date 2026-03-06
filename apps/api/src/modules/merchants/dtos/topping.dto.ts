@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateToppingDto {
@@ -10,6 +11,7 @@ export class CreateToppingDto {
     @MaxLength(500)
     description?: string;
 
+    @Type(() => Number)
     @IsNumber()
     @Min(0)
     price: number;

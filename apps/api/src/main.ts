@@ -18,11 +18,13 @@ async function bootstrap() {
 
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,
       transform: true,
+      whitelist: true,
+      transformOptions: {
+        enableImplicitConversion: false, // ✅ cực quan trọng
+      },
     }),
   );
-
   app.enableCors({
     origin: [
       'http://localhost:8080',   // merchant-web
@@ -49,7 +51,7 @@ async function bootstrap() {
         },
       },
     };
-    
+
     app.connectMicroservice<MicroserviceOptions>(kafkaOptions);
     logger.log('Kafka microservice enabled');
   } else {
@@ -58,7 +60,7 @@ async function bootstrap() {
 
   await app.startAllMicroservices();
   await app.listen(configService.port);
-  
+
   logger.log(`Application is running on: http://localhost:${configService.port}`);
 }
 

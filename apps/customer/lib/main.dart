@@ -1,14 +1,29 @@
+import 'dart:ui';
+
+import 'package:customer/app/routes/app_router.dart';
+import 'package:customer/firebase_options.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'app/router/app_router.dart';
-import 'app/theme/app_theme.dart';
 
-void main() {
-  runApp(
-    const ProviderScope(
-      child: MyApp(),
-    ),
-  );
+import 'core/di/providers.dart'; // bootstrapOverrides()
+
+// 1. Hàm này BẮT BUỘC phải nằm ở cấp cao nhất (Top-level), ngoài mọi class
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  DartPluginRegistrant.ensureInitialized(); //  cho background isolate
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
+
+Future<void> main() async {
+  final overrides = await bootstrapOverrides();
+  // Khởi tạo Firebase
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  print('Firebase init OK');
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  runApp(ProviderScope(overrides: overrides, child: const MyApp()));
 }
 
 class MyApp extends ConsumerWidget {
@@ -16,13 +31,10 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
+    final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'FaB-O2O Customer',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
       routerConfig: router,
     );
   }

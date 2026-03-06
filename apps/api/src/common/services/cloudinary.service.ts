@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import * as fs from 'fs';
 
 export interface UploadResult {
   url: string;
@@ -21,10 +22,47 @@ export class CloudinaryService {
     });
   }
 
+  private async getFileBuffer(file: Express.Multer.File): Promise<Buffer> {
+    // If file has buffer (memory storage), use it directly
+    if (file.buffer) {
+      return file.buffer;
+    }
+    // If file is saved to disk (diskStorage), read from path
+    if (file.path) {
+      return fs.promises.readFile(file.path);
+    }
+    // Fallback: throw error
+    throw new Error('File has no buffer or path');
+  }
+  async deleteByPublicId(publicId: string) {
+    // resource_type: 'image' cho ảnh
+    return cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+  }
+
+  async uploadMerchantImage(
+    file: Express.Multer.File,
+    userId: string,
+    type: 'avatar' | 'cover',
+  ) {
+    const folder = `merchants/${userId}/${type}`;
+
+    // bạn có thể dùng upload_stream như hiện tại bạn dùng
+    const res = await cloudinary.uploader.upload(file.path, {
+      folder,
+      resource_type: 'image',
+    });
+
+    return {
+      url: res.secure_url,
+      public_id: res.public_id,
+    };
+  }
   async uploadImage(
     file: Express.Multer.File,
     folder: string,
   ): Promise<UploadResult> {
+    const fileBuffer = await this.getFileBuffer(file);
+
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
@@ -47,7 +85,7 @@ export class CloudinaryService {
         },
       );
 
-      uploadStream.end(file.buffer);
+      uploadStream.end(fileBuffer);
     });
   }
 

@@ -12,11 +12,33 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { CommonModule } from './common/common.module';
 import { ApiStandardModule } from './common/modules/api-standard.module';
 import { KafkaModule } from './common/kafka/kafka.module';
-import { SeedModule } from './modules/seed/seed.module';
 import { SessionMiddleware, RateLimitMiddleware } from './middleware';
+import { GeoModule } from './modules/geo/geo.module';
+import { DriversModule } from './modules/drivers/drivers.module';
+import { FeedModule } from './modules/feed/feed.module';
+import { CacheModule } from '@nestjs/cache-manager';
+import { redisStore } from 'cache-manager-ioredis-yet';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { FavoritesModule } from './modules/favorites/favorites.module';
+import { BenefitsModule } from './modules/benefits/benefits.module';
+import { CartModule } from './modules/carts/cart.module';
 
 @Module({
   imports: [
+    CacheModule.registerAsync({
+      isGlobal: true,
+      useFactory: async () => {
+        const store = await redisStore({
+          host: process.env.REDIS_HOST ?? 'localhost',
+          port: Number(process.env.REDIS_PORT ?? 6379),
+          password: process.env.REDIS_PASSWORD || undefined,
+          // ttl mặc định tính bằng GIÂY
+          ttl: 300,
+        });
+
+        return { store };
+      },
+    }),
     ConfigModule,
     CommonModule,
     ApiStandardModule,
@@ -29,8 +51,15 @@ import { SessionMiddleware, RateLimitMiddleware } from './middleware';
     OrdersModule,
     PaymentsModule,
     PromotionsModule,
+    GeoModule,
     NotificationsModule,
-    SeedModule,
+    DriversModule,
+    FeedModule,
+    ReviewsModule,
+    FavoritesModule,
+    CartModule,
+    BenefitsModule,
+    ReviewsModule,
   ],
   providers: [],
 })

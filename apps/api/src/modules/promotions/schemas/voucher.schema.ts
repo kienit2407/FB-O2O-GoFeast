@@ -7,38 +7,34 @@ export type VoucherDocument = Voucher & Document;
 export class Voucher {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Promotion', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Promotion', required: true, index: true })
   promotion_id: Types.ObjectId;
 
-  @Prop({ required: true, unique: true })
+  // để list nhanh theo merchant; nếu platform voucher thì null
+  @Prop({ type: Types.ObjectId, ref: 'Merchant', default: null, index: true })
+  merchant_id: Types.ObjectId | null;
+
+  @Prop({ required: true, unique: true, uppercase: true, trim: true, index: true })
   code: string;
 
-  @Prop({ required: true })
-  discount_value: number;
+  @Prop({ default: 0 })
+  total_usage_limit: number;
 
   @Prop({ default: 0 })
-  max_discount: number;
-
-  @Prop({ default: 0 })
-  min_order_amount: number;
-
-  @Prop({ default: 0 })
-  usage_limit: number;
+  per_user_limit: number;
 
   @Prop({ default: 0 })
   current_usage: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  assigned_to_user: Types.ObjectId;
-
-  @Prop({ default: true })
+  @Prop({ default: true, index: true })
   is_active: boolean;
 
-  @Prop()
-  start_date: Date;
+  // Optional: nếu bạn muốn voucher có khung giờ riêng (nếu không cần thì bỏ 2 field này)
+  @Prop({ type: Date, default: null, index: true })
+  start_date: Date | null;
 
-  @Prop()
-  end_date: Date;
+  @Prop({ type: Date, default: null, index: true })
+  end_date: Date | null;
 
   created_at: Date;
   updated_at: Date;
@@ -46,5 +42,6 @@ export class Voucher {
 
 export const VoucherSchema = SchemaFactory.createForClass(Voucher);
 
-VoucherSchema.index({ code: 1 }, { unique: true });
-VoucherSchema.index({ promotion_id: 1 });
+VoucherSchema.index({ merchant_id: 1, is_active: 1, created_at: -1 });
+VoucherSchema.index({ promotion_id: 1, is_active: 1 });
+VoucherSchema.index({ start_date: 1, end_date: 1, is_active: 1 });

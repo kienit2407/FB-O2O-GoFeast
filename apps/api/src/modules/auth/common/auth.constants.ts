@@ -1,5 +1,5 @@
 export type Role = 'admin' | 'merchant' | 'customer' | 'driver';
-
+export const OAUTH_CTX_COOKIE = '__oauth_ctx';
 export type ClientApp =
   | 'admin_web'
   | 'merchant_web'

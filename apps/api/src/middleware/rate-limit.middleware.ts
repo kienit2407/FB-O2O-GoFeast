@@ -18,8 +18,8 @@ export class RateLimitMiddleware implements NestMiddleware {
   // Different limits for different endpoints
   private readonly configs: Record<string, RateLimitConfig> = {
     'default': { limit: 100, windowMs: 60000 },           // 100 requests/minute
-    'auth': { limit: 10, windowMs: 60000 },              // 10 requests/minute for auth endpoints
-    'strict': { limit: 5, windowMs: 60000 },             // 5 requests/minute for sensitive ops
+    'auth': { limit: 30, windowMs: 60000 },              // 30 requests/minute for auth endpoints (increased from 10)
+    'strict': { limit: 10, windowMs: 60000 },             // 10 requests/minute for sensitive ops
   };
 
   use(req: Request, res: Response, next: NextFunction) {

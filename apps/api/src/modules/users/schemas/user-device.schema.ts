@@ -17,8 +17,8 @@ export class UserDevice {
   @Prop({ type: String, required: true })
   platform: string;
 
-  @Prop({ type: String, default: null })
-  fcm_token: string | null;
+  @Prop({ type: String, required: false })
+  fcm_token?: string;
 
   @Prop({ type: Boolean, default: true })
   is_active: boolean;

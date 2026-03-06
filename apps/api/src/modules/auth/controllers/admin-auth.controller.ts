@@ -20,9 +20,12 @@ import { RolesGuard } from '../guards/roles.guard';
 import { ClientGuard } from '../guards/client.guard';
 import { MerchantRefreshGuard } from '../guards/refresh.guard';
 import { REFRESH_COOKIE_NAME, ClientApp } from '../common/auth.constants';
-import type { LoginDto } from '../dtos/common/login.dto';
+import type { LoginDto } from '../dtos/login.dto';
 import * as bcrypt from 'bcryptjs';
 import { RefreshSessionService } from '../services/refresh-session-service';
+import { getClientInfo } from 'src/common/utils/request-client-info';
+import { LoginHistoryService } from 'src/modules/users/services/login-history.service';
+import { LoginAuthMethod } from 'src/modules/users/schemas/login-history.schema';
 
 @Controller('auth/admin')
 @Client('admin_web')
@@ -31,7 +34,8 @@ export class AdminAuthController {
     private readonly authService: AuthService,
     private readonly tokenService: TokenService,
     private readonly refreshSessionService: RefreshSessionService,
-  ) {}
+    private readonly loginHistoryService: LoginHistoryService,
+  ) { }
 
   /**
    * POST /auth/admin/register
@@ -122,10 +126,22 @@ export class AdminAuthController {
   ) {
     const app: ClientApp = 'admin_web';
     const deviceId = req.headers['x-device-id'] as string;
+    const info = getClientInfo(req, app);
 
     const user = await this.authService.validateUser(dto.email, dto.password);
     const userDoc = user as any;
     const uid = userDoc._id.toString();
+    
+    await this.loginHistoryService.record({
+      userId: uid,
+      role: 'admin',
+      app,
+      platform: info.platform,
+      authMethod: LoginAuthMethod.PASSWORD,
+      deviceId: info.deviceId,
+      ip: info.ip,
+      userAgent: info.userAgent,
+    });
 
     // Create session for this device
     const sid = await this.refreshSessionService.createSession({

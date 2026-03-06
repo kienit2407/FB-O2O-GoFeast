@@ -27,7 +27,7 @@ export class MerchantApprovedGuard implements CanActivate {
 
     if (merchant.approval_status !== MerchantApprovalStatus.APPROVED) {
       throw new ForbiddenException(
-        `Merchant account status is ${merchant.approval_status}. ${merchant.approval_status === MerchantApprovalStatus.REJECTED ? merchant.rejection_reason || 'Please contact support for details.' : 'Your account is pending review.'}`,
+        `Merchant account status is ${merchant.approval_status}. ${merchant.approval_status === MerchantApprovalStatus.REJECTED ? merchant.rejection_reasons || 'Please contact support for details.' : 'Your account is pending review.'}`,
       );
     }
 

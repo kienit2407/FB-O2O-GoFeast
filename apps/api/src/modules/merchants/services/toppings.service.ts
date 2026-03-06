@@ -7,25 +7,30 @@ export interface CreateToppingDto {
   merchant_id: string | Types.ObjectId;
   name: string;
   description?: string;
-  image_url?: string;
   price: number;
   is_available?: boolean;
   is_active?: boolean;
   sort_order?: number;
   max_quantity?: number | null;
+
+  // thêm 2 field ảnh
+  image_url?: string | null;
+  image_public_id?: string | null;
 }
 
 export interface UpdateToppingDto {
   name?: string;
   description?: string;
-  image_url?: string;
   price?: number;
   is_available?: boolean;
   is_active?: boolean;
   sort_order?: number;
   max_quantity?: number | null;
-}
 
+  //  thêm 2 field ảnh (cho phép null)
+  image_url?: string | null;
+  image_public_id?: string | null;
+}
 @Injectable()
 export class ToppingsService {
   constructor(

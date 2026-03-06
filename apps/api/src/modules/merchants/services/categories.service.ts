@@ -42,7 +42,6 @@ export class CategoriesService {
             merchant_id: new Types.ObjectId(merchantId),
             name: data.name,
             description: data.description,
-            image_url: data.image_url,
             is_active: data.is_active ?? true,
             sort_order: nextSort,
         });

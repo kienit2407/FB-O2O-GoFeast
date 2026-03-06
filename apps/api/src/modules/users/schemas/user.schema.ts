@@ -13,8 +13,6 @@ export enum UserRole {
 export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  BLOCKED = 'blocked',
-  PENDING = 'pending',
 }
 
 @Schema({ collection: 'users', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
@@ -24,9 +22,11 @@ export class User {
   @Prop({ unique: true, sparse: true })
   email: string;
 
-  @Prop({ unique: true })
-  phone: string;
-
+  @Prop({ type: String, trim: true })
+  phone?: string;
+  //  ADD
+  @Prop({ type: String, enum: UserStatus, default: UserStatus.ACTIVE })
+  status: UserStatus;
   @Prop()
   password_hash: string;
 
@@ -62,8 +62,6 @@ export class User {
   @Prop({ type: String, enum: UserRole, default: UserRole.CUSTOMER })
   role: UserRole;
 
-  @Prop({ type: String, enum: UserStatus, default: UserStatus.PENDING })
-  status: UserStatus;
 
   @Prop({ default: 'vi' })
   language: string;
@@ -74,15 +72,6 @@ export class User {
   @Prop({ type: Date, default: null })
   deleted_at: Date | null;
 
-  // Registration flow fields
-  @Prop({ type: Date, default: null })
-  verification_expires_at: Date | null;
-
-  @Prop({ type: Number, default: 1 })
-  registration_step: number;
-
-  @Prop({ type: Object, default: {} })
-  registration_data: Record<string, any>;
 
   created_at: Date;
   updated_at: Date;
@@ -90,7 +79,7 @@ export class User {
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
-UserSchema.index({ phone: 1 }, { unique: true });
+
 UserSchema.index({ email: 1 }, { unique: true, sparse: true });
 UserSchema.index({ role: 1, status: 1 });
 UserSchema.index({ deleted_at: 1 });

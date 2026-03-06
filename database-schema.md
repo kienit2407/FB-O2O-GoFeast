@@ -142,7 +142,6 @@
   license_image_url: String,
   license_expiry: Date,
 
-  vehicle_type: String,        // "motorbike"|"car"
   vehicle_brand: String,
   vehicle_model: String,
   vehicle_plate: String,
@@ -153,8 +152,7 @@
   verified_at: Date,
   verified_by: ObjectId,       // admin user_id
 
-  // Online / Dispatch
-  is_online: Boolean,
+  
   accept_food_orders: Boolean,
 
   current_location: { type:"Point", coordinates:[Number, Number] },
@@ -513,40 +511,30 @@
 | `completed` | Hoàn thành |
 | `cancelled` | Đã hủy |
 
-### 4.2 Collection: `order_batches`
 
-```js
-{
-  _id: ObjectId,
-  driver_id: ObjectId,              // driver đang giao batch
-
-  order_ids: [ObjectId],            // các order trong batch
-
-  optimized_route: [                // route tối ưu để pickup/dropoff theo thứ tự
-    {
-      type: String,                 // "pickup"|"dropoff"
-      order_id: ObjectId,           // order nào
-      location: {                   // tọa độ điểm đến/đón
-        type: "Point",
-        coordinates: [Number, Number]
-      },
-      address: String,              // địa chỉ text
-      sequence: Number              // thứ tự đi
-    }
-  ],
-
-  total_distance: Number,           // tổng km batch
-  estimated_time: Number,          // tổng phút
-
-  status: String,                   // "active"|"completed"
-
-  created_at: Date,
-  updated_at: Date
-}
-```
 
 ---
+feed_impressions (MVP)
+{
+  _id: ObjectId,
 
+  user_id: ObjectId,               // ai thấy
+  request_id: String,              // 1 lần gọi /feed/home
+  session_id: String,              // optional (1 phiên app)
+  
+  section: String,                 // "food_for_you" | "people_love" | "restaurants_you_may_like"
+  item_type: String,               // "merchant" | "product"
+  item_id: ObjectId,               // merchant_id hoặc product_id
+  position: Number,                // index trong section (0..)
+  
+  shown_at: Date,                  // thời điểm show
+  geo_cell: String,                // optional (nếu bạn dùng cell)
+  distance_km: Number,             // optional
+  score: Number,                   // optional (heuristic score)
+  model_version: String,           // "heuristic_v1"
+  
+  created_at: Date
+}
 ## 5) PAYMENTS & WALLET (LEAN — không ride)
 
 ### 5.1 Collection: `payments`

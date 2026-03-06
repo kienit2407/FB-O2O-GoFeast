@@ -29,7 +29,7 @@ export class Merchant {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   owner_user_id: Types.ObjectId
-  // ✅ FIX: Add explicit type for union types
+  // FIX: Add explicit type for union types
   @Prop({ type: String, default: null })
   name: string | null;
 
@@ -46,11 +46,18 @@ export class Merchant {
   @Prop({ type: String, enum: StoreCategory, default: null })
   category: StoreCategory | null;
 
-  @Prop()
-  logo_url: string;
+  @Prop({ type: String, default: null })
+  logo_url: string | null;
 
-  @Prop()
-  cover_image_url: string;
+  @Prop({ type: String, default: null })
+  cover_image_url: string | null;
+
+
+  @Prop({ type: String, default: null })
+  logo_public_id: string | null;
+
+  @Prop({ type: String, default: null })
+  cover_image_public_id: string | null;
 
   //  REMOVE required - allow draft without address
   @Prop({ type: String, default: null })
@@ -63,7 +70,7 @@ export class Merchant {
       enum: ['Point']
     },
     coordinates: { type: [Number] }
-    
+
   })
   location: {
     type: string;
@@ -103,8 +110,13 @@ export class Merchant {
   approval_status: MerchantApprovalStatus;
 
 
+
+  @Prop({ type: [String], default: [] })
+  rejection_reasons: string[];
+
   @Prop({ type: String, default: null })
-  rejection_reason: string | null;
+  rejection_note: string | null;
+
 
   // Onboarding
   @Prop({ default: 1 })
@@ -112,9 +124,6 @@ export class Merchant {
 
   @Prop({ type: Date, default: null })
   submitted_at: Date | null;
-
-  @Prop({ type: Date, default: null })
-  rejected_at: Date | null;
 
   // Financial snapshot
   @Prop({ default: 0.2 })

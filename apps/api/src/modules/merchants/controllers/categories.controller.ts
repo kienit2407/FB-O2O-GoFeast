@@ -70,7 +70,7 @@ export class CategoriesController {
       image_url = up.secure_url || up.url;
     }
 
-    return this.categoriesService.create(merchant._id.toString(), { ...dto, image_url });
+    return this.categoriesService.create(merchant._id.toString(), { ...dto });
   }
 
   @Patch(':id')

@@ -59,34 +59,18 @@ export class UsersService {
     return this.userModel.findByIdAndUpdate(
       id,
       {
-        registration_step: step,
         registration_data: data,
-        verification_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
       },
       { new: true },
     ).exec();
   }
 
-  async getRegistrationProgress(id: string): Promise<{ step: number; data: Record<string, any> } | null> {
-    const user = await this.userModel.findById(id).select('registration_step registration_data verification_expires_at').exec();
-    if (!user) return null;
-    
-    if (user.verification_expires_at && user.verification_expires_at < new Date()) {
-      return null;
-    }
-    
-    return {
-      step: user.registration_step || 1,
-      data: user.registration_data || {},
-    };
-  }
+
 
   async clearRegistrationProgress(id: string): Promise<void> {
     await this.userModel.findByIdAndUpdate(id, {
       $unset: {
-        registration_step: '',
         registration_data: '',
-        verification_expires_at: '',
       },
     }).exec();
   }
