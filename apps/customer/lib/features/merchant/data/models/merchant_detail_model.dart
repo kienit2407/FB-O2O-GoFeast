@@ -425,7 +425,7 @@ class MerchantDetailProductItem extends MerchantDetailSectionItem {
       price: (j['price'] as num?) ?? 0,
       basePrice: j['base_price'] as num?,
       sold: (j['sold'] as num?)?.toInt() ?? 0,
-      isAvailable: j['is_available'] == true,
+      isAvailable: j['is_available'] != false,
       rating: (j['rating'] as num?) ?? 0,
       reviews: (j['reviews'] as num?)?.toInt() ?? 0,
       hasOptions: j['has_options'] == true,

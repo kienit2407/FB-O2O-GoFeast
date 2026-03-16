@@ -1,6 +1,14 @@
-// src/modules/reviews/dtos/update-review.dto.ts
-import { IsArray, IsInt, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+    ArrayMaxSize,
+    IsArray,
+    IsInt,
+    IsOptional,
+    IsString,
+    Max,
+    Min,
+    ValidateNested,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 class ReviewImageDto {
     @IsString()
@@ -13,6 +21,7 @@ class ReviewImageDto {
 
 export class UpdateReviewDto {
     @IsOptional()
+    @Transform(({ value }) => Number(value))
     @IsInt()
     @Min(1)
     @Max(5)
@@ -23,12 +32,17 @@ export class UpdateReviewDto {
     comment?: string;
 
     @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(9)
+    @ValidateNested({ each: true })
+    @Type(() => ReviewImageDto)
+    images?: ReviewImageDto[];
+
+    @IsOptional()
     @IsString()
     video_url?: string | null;
 
     @IsOptional()
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => ReviewImageDto)
-    images?: ReviewImageDto[];
+    @IsString()
+    video_public_id?: string | null;
 }

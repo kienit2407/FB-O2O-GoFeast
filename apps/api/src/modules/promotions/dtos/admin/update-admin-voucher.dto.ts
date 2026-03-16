@@ -1,5 +1,13 @@
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsDateString, IsMongoId, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+    IsBoolean,
+    IsDateString,
+    IsMongoId,
+    IsNumber,
+    IsOptional,
+    IsString,
+    Min,
+} from 'class-validator';
 
 export class UpdateAdminVoucherDto {
     @IsOptional()
@@ -11,11 +19,13 @@ export class UpdateAdminVoucherDto {
     @Transform(({ value }) => String(value ?? '').trim().toUpperCase())
     code?: string;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)
     total_usage_limit?: number;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)

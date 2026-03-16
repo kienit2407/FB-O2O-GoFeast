@@ -22,32 +22,93 @@ export class GeoService {
     if (!k) throw new InternalServerErrorException('TRACKASIA_KEY is missing');
     return k;
   }
-  async getEtaDirections(params: {
-    origin: LatLng | string;
-    destination: LatLng | string;
+
+  private toV1Profile(mode?: TravelMode): string {
+    switch (mode) {
+      case 'motorcycling':
+        return 'moto';
+      case 'walking':
+        return 'walk';
+      case 'truck':
+        return 'truck';
+      case 'driving':
+      default:
+        return 'car';
+    }
+  }
+
+  private haversineMeters(a: LatLng, b: LatLng): number {
+    const R = 6371000;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+
+    const h =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  private async fetchText(url: string) {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+
+    const ct = res.headers.get('content-type') || '';
+    const text = await res.text().catch(() => '');
+
+    return { ok: res.ok, status: res.status, contentType: ct, text, url: res.url };
+  }
+
+  private parseJsonOrNull(text: string) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryV2Directions(params: {
+    origin: LatLng;
+    destination: LatLng;
     mode?: TravelMode;
     new_admin?: boolean;
   }) {
     const url = new URL('https://maps.track-asia.com/route/v2/directions/json');
-
-    url.searchParams.set('origin', this.toPoint(params.origin));
-    url.searchParams.set('destination', this.toPoint(params.destination));
-    url.searchParams.set('mode', params.mode ?? 'motorcycling'); // delivery thường dùng motorcycling
+    url.searchParams.set('origin', `${params.origin.lat},${params.origin.lng}`);
+    url.searchParams.set(
+      'destination',
+      `${params.destination.lat},${params.destination.lng}`,
+    );
+    url.searchParams.set('mode', params.mode ?? 'motorcycling');
     url.searchParams.set('new_admin', String(params.new_admin ?? true));
     url.searchParams.set('key', this.key);
 
-    const json = await this.fetchJson(url);
+    const res = await this.fetchText(url.toString());
+    if (!res.ok || !res.contentType.includes('application/json')) {
+      return null;
+    }
 
-    // ZERO_RESULTS hoặc không có route
-    if (json?.status === 'ZERO_RESULTS' || !Array.isArray(json?.routes) || json.routes.length === 0) {
+    const json = this.parseJsonOrNull(res.text);
+    if (!json) return null;
+    if (json.status && json.status !== 'OK' && json.status !== 'ZERO_RESULTS') {
+      return null;
+    }
+
+    if (json?.status === 'ZERO_RESULTS' || !Array.isArray(json?.routes) || !json.routes.length) {
       return {
-        ok: false as const,
+        ok: false,
         status: json?.status ?? 'ZERO_RESULTS',
         distance_m: null,
         duration_s: null,
         distance_text: null,
         duration_text: null,
         polyline: null,
+        source: 'v2',
         raw: json,
       };
     }
@@ -55,26 +116,163 @@ export class GeoService {
     const route = json.routes[0];
     const leg = route?.legs?.[0];
 
-    const distance_m = Number(leg?.distance?.value ?? 0) || 0;
-    const duration_s = Number(leg?.duration?.value ?? 0) || 0;
-
     return {
-      ok: true as const,
+      ok: true,
       status: json.status,
-      distance_m,
-      duration_s,
+      distance_m: Number(leg?.distance?.value ?? 0) || 0,
+      duration_s: Number(leg?.duration?.value ?? 0) || 0,
       distance_text: leg?.distance?.text ?? null,
       duration_text: leg?.duration?.text ?? null,
-
-      // tiện cho FE vẽ route nếu muốn
       polyline: route?.overview_polyline?.points ?? null,
-
-      // nếu TrackAsia trả giống Google có duration_in_traffic (không phải lúc nào cũng có)
-      duration_in_traffic_s: route?.legs?.[0]?.duration_in_traffic?.value ?? null,
-
+      source: 'v2',
       raw: json,
     };
   }
+
+  private async tryV1Directions(params: {
+    origin: LatLng;
+    destination: LatLng;
+    mode?: TravelMode;
+  }) {
+    const profile = this.toV1Profile(params.mode);
+    const coords =
+      `${params.origin.lng},${params.origin.lat};${params.destination.lng},${params.destination.lat}`;
+    const url =
+      `https://maps.track-asia.com/route/v1/${profile}/${coords}.json` +
+      `?geometries=geojson&overview=full&steps=false&key=${encodeURIComponent(this.key)}`;
+
+    const res = await this.fetchText(url);
+    if (!res.ok || !res.contentType.includes('application/json')) {
+      return null;
+    }
+
+    const json = this.parseJsonOrNull(res.text);
+    if (!json) return null;
+    if (json?.code && json.code !== 'Ok') return null;
+
+    const route = Array.isArray(json?.routes) ? json.routes[0] : null;
+    if (!route) return null;
+
+    return {
+      ok: true,
+      status: 'OK',
+      distance_m: Number(route.distance ?? 0) || 0,
+      duration_s: Number(route.duration ?? 0) || 0,
+      distance_text: null,
+      duration_text: null,
+      polyline: null,
+      route_points: Array.isArray(route?.geometry?.coordinates)
+        ? route.geometry.coordinates
+        : [],
+      source: 'v1',
+      raw: json,
+    };
+  }
+
+  async getEtaDirections(params: {
+    origin: LatLng;
+    destination: LatLng;
+    mode?: TravelMode;
+    new_admin?: boolean;
+  }) {
+    const straight = this.haversineMeters(params.origin, params.destination);
+
+    // điểm quá gần thì khỏi gọi TrackAsia
+    if (straight < 20) {
+      return {
+        ok: true,
+        status: 'TOO_CLOSE',
+        distance_m: Math.round(straight),
+        duration_s: 0,
+        distance_text: `${Math.round(straight)} m`,
+        duration_text: '0 phút',
+        polyline: null,
+        route_points: [
+          [params.origin.lng, params.origin.lat],
+          [params.destination.lng, params.destination.lat],
+        ],
+        source: 'local',
+        raw: null,
+      };
+    }
+
+    const v2 = await this.tryV2Directions(params);
+    if (v2) return v2;
+
+    const v1 = await this.tryV1Directions(params);
+    if (v1) return v1;
+
+    // fallback cuối: không throw nữa
+    return {
+      ok: false,
+      status: 'UPSTREAM_UNAVAILABLE',
+      distance_m: Math.round(straight),
+      duration_s: null,
+      distance_text: `${Math.round(straight)} m`,
+      duration_text: null,
+      polyline: null,
+      route_points: [
+        [params.origin.lng, params.origin.lat],
+        [params.destination.lng, params.destination.lat],
+      ],
+      source: 'fallback',
+      raw: null,
+    };
+  }
+
+  // async getEtaDirections(params: {
+  //   origin: LatLng | string;
+  //   destination: LatLng | string;
+  //   mode?: TravelMode;
+  //   new_admin?: boolean;
+  // }) {
+  //   const url = new URL('https://maps.track-asia.com/route/v2/directions/json');
+
+  //   url.searchParams.set('origin', this.toPoint(params.origin));
+  //   url.searchParams.set('destination', this.toPoint(params.destination));
+  //   url.searchParams.set('mode', params.mode ?? 'motorcycling'); // delivery thường dùng motorcycling
+  //   url.searchParams.set('new_admin', String(params.new_admin ?? true));
+  //   url.searchParams.set('key', this.key);
+
+  //   const json = await this.fetchJson(url);
+
+  //   // ZERO_RESULTS hoặc không có route
+  //   if (json?.status === 'ZERO_RESULTS' || !Array.isArray(json?.routes) || json.routes.length === 0) {
+  //     return {
+  //       ok: false as const,
+  //       status: json?.status ?? 'ZERO_RESULTS',
+  //       distance_m: null,
+  //       duration_s: null,
+  //       distance_text: null,
+  //       duration_text: null,
+  //       polyline: null,
+  //       raw: json,
+  //     };
+  //   }
+
+  //   const route = json.routes[0];
+  //   const leg = route?.legs?.[0];
+
+  //   const distance_m = Number(leg?.distance?.value ?? 0) || 0;
+  //   const duration_s = Number(leg?.duration?.value ?? 0) || 0;
+
+  //   return {
+  //     ok: true as const,
+  //     status: json.status,
+  //     distance_m,
+  //     duration_s,
+  //     distance_text: leg?.distance?.text ?? null,
+  //     duration_text: leg?.duration?.text ?? null,
+
+  //     // tiện cho FE vẽ route nếu muốn
+  //     polyline: route?.overview_polyline?.points ?? null,
+
+  //     // nếu TrackAsia trả giống Google có duration_in_traffic (không phải lúc nào cũng có)
+  //     duration_in_traffic_s: route?.legs?.[0]?.duration_in_traffic?.value ?? null,
+
+  //     raw: json,
+  //   };
+  // }
   private async fetchJson(url: URL) {
     const res = await fetch(url.toString(), {
       headers: { Accept: 'application/json' },
@@ -85,6 +283,13 @@ export class GeoService {
 
     // Nếu HTTP != 200 -> ném kèm body snippet để biết lỗi thật (403/429/...)
     if (!res.ok) {
+      console.error('[TrackAsia HTTP ERROR]', {
+        status: res.status,
+        contentType: ct,
+        url: res.url,
+        bodySnippet: text.slice(0, 500),
+      });
+
       throw new BadGatewayException({
         message: 'TrackAsia HTTP error',
         status: res.status,

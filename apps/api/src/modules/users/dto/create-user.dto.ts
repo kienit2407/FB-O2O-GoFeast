@@ -1,4 +1,5 @@
 import { IsEmail, IsString, IsEnum, IsOptional } from 'class-validator';
+import { UserStatus } from '../schemas/user.schema';
 
 export class CreateUserDto {
   @IsEmail()
@@ -21,8 +22,9 @@ export class CreateUserDto {
   password_hash?: string;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  // 2. Sửa @IsString() thành @IsEnum(UserStatus) để validate chuẩn hơn
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 
   @IsOptional()
   @IsString({ each: true })

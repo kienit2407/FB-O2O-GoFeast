@@ -24,6 +24,7 @@ class _SigninPageState extends ConsumerState<SigninPage> {
   Future<void> _oauthLogin(String startUrl, {required String provider}) async {
     final deviceId = await DeviceIdStorage().getDeviceId();
     final urlWithDevice = '$startUrl&deviceId=${Uri.encodeComponent(deviceId)}';
+
     setState(() {
       if (provider == 'google') _loadingGoogle = true;
       if (provider == 'github') _loadingGithub = true;
@@ -43,7 +44,6 @@ class _SigninPageState extends ConsumerState<SigninPage> {
         throw Exception('Thiếu accessToken/refreshToken');
       }
 
-      // ✅ dùng ViewModel provider mới
       await ref
           .read(authViewModelProvider.notifier)
           .signInWithTokens(
@@ -51,10 +51,13 @@ class _SigninPageState extends ConsumerState<SigninPage> {
             refreshToken: refreshToken,
           );
 
-      if (!mounted) return;
-      context.go('/');
+      if (context.canPop()) {
+        context.pop(true); // báo về là login thành công
+      } else {
+        context.go('/');
+      }
     } catch (_) {
-      // TODO: toast/snack nếu muốn
+      // giữ nguyên logic hiện tại
     } finally {
       if (!mounted) return;
       setState(() {
@@ -66,90 +69,278 @@ class _SigninPageState extends ConsumerState<SigninPage> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+
     return Scaffold(
       extendBodyBehindAppBar: true,
+      backgroundColor: AppColor.background,
       appBar: AppBar(
-        backgroundColor: Colors.transparent, // Nền trong suốt
-        elevation: 0, // Bỏ bóng đổ
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         surfaceTintColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(
-            Iconsax
-                .arrow_left_2_copy, // Dùng icon arrow của Iconsax cho đồng bộ
-            color: AppColor.background, // Màu đen/xám theo theme text
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: () {
+              if (context.canPop()) {
+                context.pop(false); // đóng signin, không login
+              } else {
+                context.go('/');
+              }
+            },
+            child: Container(
+              margin: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(.18),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(.18)),
+              ),
+              child: const Icon(
+                Iconsax.arrow_left_2_copy,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
           ),
-          onPressed: () {
-            // Kiểm tra xem có thể back được không
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              // Nếu không còn trang trước (ví dụ chạy thẳng vào login), về trang chủ hoặc onboarding
-              context.go('/');
-            }
-          },
         ),
       ),
-      backgroundColor: AppColor.primary,
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 420,
-            ), // 👈 chỉnh max width ở đây
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _titlePage(),
-                const SizedBox(height: 30),
-                _SocialFullButton(
-                  label: 'Đăng nhập bằng Google',
-                  icon: Image.asset(AppIcon.googleIcon, width: 20, height: 20),
-                  loading: _loadingGoogle,
-                  onPressed: () => _oauthLogin(
-                    UrlConfig.customerGoogleOAuth(),
-                    provider: 'google',
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColor.primary, AppColor.primaryDark, AppColor.primary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  topPadding > 0 ? 8 : 16,
+                  16,
+                  24,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 20,
+                  ),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 430),
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 28),
+                          _buildHero(),
+                          const SizedBox(height: 24),
+                          _buildSigninCard(),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                _SocialFullButton(
-                  label: 'Đăng nhập bằng GitHub',
-                  icon: Image.asset(AppIcon.githubIcon, width: 20, height: 20),
-                  loading: _loadingGithub,
-                  onPressed: () => _oauthLogin(
-                    UrlConfig.customerGithubOAuth(),
-                    provider: 'github',
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _titlePage() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 30),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Let’s Sign In.!',
-            style: TextStyle(
-              color: AppColor.primaryLight,
-              fontWeight: FontWeight.w700,
-              fontSize: 20,
+  Widget _buildHero() {
+    return Column(
+      children: [
+        Container(
+          height: 88,
+          width: 88,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(.18),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withOpacity(.22)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1A000000),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Container(
+            margin: const EdgeInsets.all(10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Iconsax.shop_copy,
+              color: AppColor.primary,
+              size: 34,
             ),
           ),
-          SizedBox(height: 10),
-          Text(
-            'Login to Your Account to Continue your Courses',
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          'Đăng nhập để đặt món',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 28,
+            height: 1.15,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Theo dõi đơn hàng, lưu địa chỉ, nhận ưu đãi và tiếp tục hành trình ăn ngon của bạn.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withOpacity(.92),
+            fontWeight: FontWeight.w500,
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: const [
+            _FeatureChip(icon: Iconsax.location_copy, label: 'Lưu địa chỉ'),
+            _FeatureChip(
+              icon: Iconsax.discount_shape_copy,
+              label: 'Nhận ưu đãi',
+            ),
+            _FeatureChip(icon: Iconsax.box_copy, label: 'Theo dõi đơn'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSigninCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 26,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Chào mừng bạn quay lại',
             style: TextStyle(
-              color: AppColor.primaryLight,
+              color: AppColor.textPrimary,
+              fontWeight: FontWeight.w800,
+              fontSize: 22,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Chọn phương thức đăng nhập để tiếp tục đặt món, xem lịch sử đơn hàng và quản lý tài khoản của bạn.',
+            style: TextStyle(
+              color: AppColor.textSecondary,
               fontWeight: FontWeight.w500,
-              fontSize: 13,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColor.primaryLight,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColor.primary.withOpacity(.08)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Iconsax.info_circle_copy,
+                  color: AppColor.primary,
+                  size: 20,
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Đăng nhập để đồng bộ giỏ hàng, địa chỉ giao hàng yêu thích và các mã giảm giá dành riêng cho bạn.',
+                    style: TextStyle(
+                      color: AppColor.textSecondary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          _SocialFullButton(
+            label: 'Tiếp tục với Google',
+            sublabel: 'Nhanh chóng với tài khoản Google của bạn',
+            icon: Image.asset(AppIcon.googleIcon, width: 22, height: 22),
+            loading: _loadingGoogle,
+            onPressed: () => _oauthLogin(
+              UrlConfig.customerGoogleOAuth(),
+              provider: 'google',
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SocialFullButton(
+            label: 'Tiếp tục với GitHub',
+            sublabel: 'Dành cho tài khoản đã liên kết GitHub',
+            icon: Image.asset(AppIcon.githubIcon, width: 22, height: 22),
+            loading: _loadingGithub,
+            onPressed: () => _oauthLogin(
+              UrlConfig.customerGithubOAuth(),
+              provider: 'github',
+            ),
+          ),
+          const SizedBox(height: 18),
+          Divider(color: Colors.grey.withOpacity(.15), height: 1),
+          const SizedBox(height: 16),
+          Row(
+            children: const [
+              Expanded(
+                child: _SmallBenefitCard(
+                  icon: Iconsax.heart_copy,
+                  title: 'Yêu thích',
+                  subtitle: 'Lưu quán và món bạn thích',
+                ),
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: _SmallBenefitCard(
+                  icon: Iconsax.ticket_discount_copy,
+                  title: 'Ưu đãi',
+                  subtitle: 'Nhận mã giảm giá dễ hơn',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'Bằng việc tiếp tục, bạn đồng ý đăng nhập và sử dụng nền tảng theo chính sách hiện hành của ứng dụng.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColor.textMuted,
+              fontWeight: FontWeight.w500,
+              fontSize: 12,
+              height: 1.5,
             ),
           ),
         ],
@@ -161,49 +352,194 @@ class _SigninPageState extends ConsumerState<SigninPage> {
 class _SocialFullButton extends StatelessWidget {
   const _SocialFullButton({
     required this.label,
+    required this.sublabel,
     required this.icon,
     required this.loading,
     required this.onPressed,
   });
 
   final String label;
+  final String sublabel;
   final Widget icon;
   final bool loading;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 52,
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: loading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.black.withOpacity(.08)),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: loading ? null : onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          height: 72,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.black.withOpacity(.06)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x08000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Container(
+                  height: 42,
+                  width: 42,
+                  decoration: BoxDecoration(
+                    color: AppColor.primaryLight,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Center(
+                    child: loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CupertinoActivityIndicator(),
+                          )
+                        : icon,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColor.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        sublabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColor.textSecondary,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  loading
+                      ? Icons.more_horiz_rounded
+                      : Iconsax.arrow_right_3_copy,
+                  size: 16,
+                  color: loading ? AppColor.textMuted : AppColor.primary,
+                ),
+              ],
+            ),
           ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (loading) ...[
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CupertinoActivityIndicator(),
-              ),
-              const SizedBox(width: 12),
-            ] else ...[
-              icon,
-              const SizedBox(width: 10),
-            ],
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          ],
-        ),
+      ),
+    );
+  }
+}
+
+class _FeatureChip extends StatelessWidget {
+  const _FeatureChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 15),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SmallBenefitCard extends StatelessWidget {
+  const _SmallBenefitCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColor.primaryLight,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColor.primary.withOpacity(.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 34,
+            width: 34,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppColor.primary, size: 18),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColor.textPrimary,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: AppColor.textSecondary,
+              fontWeight: FontWeight.w500,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ],
       ),
     );
   }

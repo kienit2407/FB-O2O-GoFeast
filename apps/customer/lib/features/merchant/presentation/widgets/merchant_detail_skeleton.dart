@@ -1,6 +1,6 @@
-import 'package:customer/core/shared/widgets/skeleton_temeplate.dart';
-import 'package:flutter/material.dart';
 import 'package:customer/app/theme/app_color.dart';
+import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 
 class MerchantDetailSkeleton extends StatelessWidget {
   const MerchantDetailSkeleton({super.key});
@@ -11,41 +11,49 @@ class MerchantDetailSkeleton extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F6F6),
-      body: Skeleton(
-        // bạn có thể đổi base/highlight cho hợp theme
-        baseColor: const Color(0xFFE8E8E8),
-        highlightColor: const Color(0xFFF6F6F6),
+      body: _Shimmer(
         child: CustomScrollView(
           slivers: [
-            // ===== cover + top bar =====
             SliverAppBar(
               pinned: true,
               automaticallyImplyLeading: false,
-              expandedHeight: 210,
+              expandedHeight: 220,
               backgroundColor: Colors.transparent,
               surfaceTintColor: Colors.transparent,
               elevation: 0,
               flexibleSpace: Stack(
                 fit: StackFit.expand,
                 children: [
-                  const SkeletonBox(radius: 0), // cover
-                  // top bar area
+                  const _SkBox(radius: 0),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(.08),
+                            Colors.transparent,
+                            Colors.black.withOpacity(.04),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                   Positioned(
                     top: 0,
                     left: 0,
                     right: 0,
                     height: topPad + kToolbarHeight,
-                    child: Container(
-                      padding: EdgeInsets.only(top: topPad),
+                    child: Padding(
+                      padding: EdgeInsets.only(top: topPad, left: 8, right: 8),
                       child: Row(
                         children: const [
-                          SizedBox(width: 8),
-                          SkeletonCircle(size: 40),
+                          _SkCircle(size: 40),
                           SizedBox(width: 10),
-                          Expanded(child: SkeletonLine(height: 14)),
+                          Expanded(child: _SkBox(height: 38, radius: 10)),
                           SizedBox(width: 10),
-                          SkeletonCircle(size: 40),
-                          SizedBox(width: 8),
+                          _SkCircle(size: 40),
                         ],
                       ),
                     ),
@@ -54,7 +62,6 @@ class MerchantDetailSkeleton extends StatelessWidget {
               ),
             ),
 
-            // ===== merchant info =====
             SliverToBoxAdapter(
               child: Container(
                 color: Colors.white,
@@ -62,62 +69,57 @@ class MerchantDetailSkeleton extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    SkeletonLine(height: 20, width: 220),
+                    _SkLine(width: 210, height: 22),
                     SizedBox(height: 10),
                     Row(
                       children: [
-                        SkeletonLine(height: 14, width: 90),
+                        _SkLine(width: 70, height: 14),
                         SizedBox(width: 10),
-                        SkeletonLine(height: 14, width: 120),
+                        _SkLine(width: 120, height: 14),
                         Spacer(),
-                        SkeletonCircle(size: 34),
+                        _SkCircle(size: 34),
                       ],
                     ),
+                    SizedBox(height: 10),
+                    _SkLine(width: 110, height: 14),
                   ],
                 ),
               ),
             ),
 
-            // ===== delivery + promos =====
             SliverToBoxAdapter(
               child: Container(
                 color: Colors.white,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                 child: Column(
-                  children: [
+                  children: const [
                     Row(
-                      children: const [
-                        SkeletonCircle(size: 36),
+                      children: [
+                        _SkCircle(size: 36),
                         SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              SkeletonLine(height: 12, width: 90),
+                              _SkLine(width: 120, height: 13),
                               SizedBox(height: 6),
-                              SkeletonLine(height: 12, width: 180),
+                              _SkLine(width: 180, height: 12),
                             ],
                           ),
                         ),
-                        SkeletonLine(height: 14, width: 72),
+                        SizedBox(width: 10),
+                        _SkLine(width: 62, height: 13),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    const Row(children: [SkeletonLine(height: 12, width: 260)]),
-                    const SizedBox(height: 10),
-                    const Row(
-                      children: [
-                        SkeletonLine(height: 12, width: 220),
-                        Spacer(),
-                        SkeletonLine(height: 12, width: 70),
-                      ],
-                    ),
+                    SizedBox(height: 14),
+                    _PromoLineSkeleton(showTrailing: false),
+                    SizedBox(height: 10),
+                    _PromoLineSkeleton(showTrailing: true),
                   ],
                 ),
               ),
             ),
 
-            // ===== popular =====
             SliverToBoxAdapter(
               child: Container(
                 color: Colors.white,
@@ -127,17 +129,17 @@ class MerchantDetailSkeleton extends StatelessWidget {
                   children: [
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: SkeletonLine(height: 18, width: 140),
+                      child: _SkLine(width: 120, height: 18),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     SizedBox(
-                      height: 110,
+                      height: 126,
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         scrollDirection: Axis.horizontal,
-                        itemCount: 4,
+                        itemCount: 3,
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
-                        itemBuilder: (_, __) => const _PopularSkeletonCard(),
+                        itemBuilder: (_, __) => const _PopularCardSkeleton(),
                       ),
                     ),
                   ],
@@ -145,22 +147,21 @@ class MerchantDetailSkeleton extends StatelessWidget {
               ),
             ),
 
-            // ===== tabs header =====
             SliverPersistentHeader(
               pinned: true,
               delegate: _SkeletonTabHeaderDelegate(),
             ),
 
-            // ===== menu list =====
-            SliverPadding(
-              padding: const EdgeInsets.only(bottom: 24),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  // pattern: header every 7 items
-                  if (index % 7 == 0) return const _SectionHeaderSkeleton();
-                  return const _MenuItemSkeletonRow();
-                }, childCount: 28),
-              ),
+            SliverList(
+              delegate: SliverChildListDelegate([
+                const _MenuSectionHeaderSkeleton(),
+                ...List.generate(4, (_) => const _MenuItemSkeletonRow()),
+                const _MenuSectionHeaderSkeleton(width: 150),
+                ...List.generate(5, (_) => const _MenuItemSkeletonRow()),
+                const _MenuSectionHeaderSkeleton(width: 170),
+                ...List.generate(4, (_) => const _MenuItemSkeletonRow()),
+                const SizedBox(height: 24),
+              ]),
             ),
           ],
         ),
@@ -169,52 +170,147 @@ class MerchantDetailSkeleton extends StatelessWidget {
   }
 }
 
-class _PopularSkeletonCard extends StatelessWidget {
-  const _PopularSkeletonCard();
+class _Shimmer extends StatelessWidget {
+  const _Shimmer({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFFE6E6E6),
+      highlightColor: const Color(0xFFF5F5F5),
+      period: const Duration(milliseconds: 1300),
+      child: child,
+    );
+  }
+}
+
+class _SkBox extends StatelessWidget {
+  const _SkBox({this.width, this.height, this.radius = 12});
+
+  final double? width;
+  final double? height;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 240,
-      padding: const EdgeInsets.all(10),
+      width: width,
+      height: height,
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(radius),
       ),
-      child: const Row(
-        children: [
-          SkeletonBox(width: 70, height: 70, radius: 12),
-          SizedBox(width: 10),
+    );
+  }
+}
+
+class _SkLine extends StatelessWidget {
+  const _SkLine({this.width, this.height = 12, this.radius = 999});
+
+  final double? width;
+  final double height;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SkBox(width: width, height: height, radius: radius);
+  }
+}
+
+class _SkCircle extends StatelessWidget {
+  const _SkCircle({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SkBox(width: size, height: size, radius: size);
+  }
+}
+
+class _PromoLineSkeleton extends StatelessWidget {
+  const _PromoLineSkeleton({required this.showTrailing});
+
+  final bool showTrailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const _SkBox(width: 18, height: 18, radius: 6),
+        const SizedBox(width: 8),
+        const Expanded(child: _SkLine(height: 12)),
+        if (showTrailing) ...[
+          const SizedBox(width: 10),
+          const _SkLine(width: 66, height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _PopularCardSkeleton extends StatelessWidget {
+  const _PopularCardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: MediaQuery.sizeOf(context).width * 0.84,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: AppColor.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black.withOpacity(.05), width: .5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Stack(
+            children: [
+              _SkBox(width: 78, height: 78, radius: 12),
+              Positioned(
+                left: 0,
+                top: 0,
+                child: _SkBox(width: 34, height: 18, radius: 8),
+              ),
+            ],
+          ),
+          SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SkeletonLine(height: 12, width: 140),
+                _SkLine(width: double.infinity, height: 14, radius: 8),
                 SizedBox(height: 8),
-                SkeletonLine(height: 12, width: 100),
-                Spacer(),
-                SkeletonLine(height: 16, width: 90),
+                _SkLine(width: 150, height: 12, radius: 8),
+                SizedBox(height: 8),
+                _SkLine(width: 120, height: 10, radius: 8),
+                SizedBox(height: 10),
+                _SkLine(width: 90, height: 15, radius: 8),
               ],
             ),
           ),
-          SizedBox(width: 8),
-          SkeletonBox(width: 34, height: 34, radius: 10),
+          SizedBox(width: 10),
+          _SkBox(width: 25, height: 25, radius: 5),
         ],
       ),
     );
   }
 }
 
-class _SectionHeaderSkeleton extends StatelessWidget {
-  const _SectionHeaderSkeleton();
+class _MenuSectionHeaderSkeleton extends StatelessWidget {
+  const _MenuSectionHeaderSkeleton({this.width = 180});
+
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      child: const SkeletonLine(height: 18, width: 180),
+      child: _SkLine(width: width, height: 14, radius: 8),
     );
   }
 }
@@ -227,27 +323,36 @@ class _MenuItemSkeletonRow extends StatelessWidget {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SkeletonBox(width: 78, height: 78, radius: 12),
+        children: const [
+          Stack(
+            children: [
+              _SkBox(width: 78, height: 78, radius: 12),
+              Positioned(
+                left: 0,
+                top: 0,
+                child: _SkBox(width: 34, height: 18, radius: 8),
+              ),
+            ],
+          ),
           SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SkeletonLine(height: 14, width: 220),
+                _SkLine(height: 14, radius: 8),
                 SizedBox(height: 8),
-                SkeletonLine(height: 12, width: 180),
+                _SkLine(width: 180, height: 12, radius: 8),
+                SizedBox(height: 8),
+                _SkLine(width: 130, height: 10, radius: 8),
                 SizedBox(height: 10),
-                SkeletonLine(height: 12, width: 140),
-                SizedBox(height: 10),
-                SkeletonLine(height: 16, width: 110),
+                _SkLine(width: 90, height: 15, radius: 8),
               ],
             ),
           ),
           SizedBox(width: 10),
-          SkeletonBox(width: 38, height: 38, radius: 10),
+          _SkBox(width: 25, height: 25, radius: 5),
         ],
       ),
     );
@@ -278,19 +383,27 @@ class _SkeletonTabHeaderDelegate extends SliverPersistentHeaderDelegate {
               scrollDirection: Axis.horizontal,
               itemCount: 5,
               separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (_, __) =>
-                  const SkeletonBox(width: 90, height: 30, radius: 999),
+              itemBuilder: (_, index) {
+                final widths = [84.0, 96.0, 78.0, 108.0, 88.0];
+                return _SkBox(width: widths[index], height: 30, radius: 999);
+              },
             ),
           ),
           Container(
             width: 1,
             height: 22,
-            color: Colors.black.withOpacity(0.10),
+            color: Colors.black.withOpacity(0.08),
           ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            color: Colors.black26,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
           ),
         ],
       ),
@@ -298,6 +411,7 @@ class _SkeletonTabHeaderDelegate extends SliverPersistentHeaderDelegate {
   }
 
   @override
-  bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) =>
-      false;
+  bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {
+    return false;
+  }
 }

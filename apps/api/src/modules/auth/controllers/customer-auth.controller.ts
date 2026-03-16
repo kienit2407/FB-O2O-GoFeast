@@ -22,6 +22,7 @@ import { REFRESH_COOKIE_NAME, ClientApp } from '../common/auth.constants';
 import { AuthGuard } from '@nestjs/passport';
 import { OptionalJwtAuthGuard } from '../guards';
 import { RegisterDeviceDto } from 'src/modules/users/dto/register-device.dto';
+import { CustomerProfilesService } from 'src/modules/customers/services/customer-profile.service';
 
 @Controller('auth/customer')
 @Client('customer_mobile')
@@ -29,6 +30,7 @@ export class CustomerAuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly tokenService: TokenService,
+     private readonly customerProfilesService: CustomerProfilesService,
   ) { }
 
   @Post('device/register')
@@ -119,7 +121,7 @@ export class CustomerAuthController {
     const userId = req.user.userId;
 
     // ✅ thay vì getUserSafe -> lấy kèm profile
-    const data = await this.authService.getMeCustomer(userId);
+    const data = await this.customerProfilesService.getMyProfile(userId);
 
     return { success: true, data };
   }

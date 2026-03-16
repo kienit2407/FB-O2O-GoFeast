@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Product, ProductDocument } from '../schemas/product.schema';
 import { Category, CategoryDocument } from '../schemas/category.schema';
 import { Topping, ToppingDocument } from '../schemas/topping.schema';
+import { normalizeSearchText } from 'src/modules/search/utils/search-normalizer.util';
 
 @Injectable()
 export class ProductsService {
@@ -67,6 +68,7 @@ export class ProductsService {
             merchant_id: new Types.ObjectId(merchantId),
             category_id: new Types.ObjectId(data.category_id as any),
             name: data.name,
+            name_search: normalizeSearchText(data.name),
             description: data.description || '',
             images: this.normalizeImages((data as any).images || []), // ✅
             base_price: data.base_price,
@@ -104,8 +106,11 @@ export class ProductsService {
         const patch: any = { ...data };
         if ((data as any).images) {
             patch.images = this.normalizeImages((data as any).images);
-        }
 
+        }
+        if (typeof data.name === 'string') {
+            patch.name_search = normalizeSearchText(data.name);
+        }
         const doc = await this.productModel.findOneAndUpdate(
             {
                 _id: new Types.ObjectId(id),

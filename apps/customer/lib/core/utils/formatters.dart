@@ -37,6 +37,12 @@ String promotionText(AutoPromotion p) {
   return '$discount$maxPart$levelPart$minPart';
 }
 
+String pickText(String? a, String? b) {
+  final x = (a ?? '').trim();
+  if (x.isNotEmpty) return x;
+  return (b ?? '').trim();
+}
+
 String vnRemoveDiacritics(String str) {
   // Giữ nguyên độ dài (1 ký tự -> 1 ký tự), để index match dùng được cho text gốc
   const withDia =

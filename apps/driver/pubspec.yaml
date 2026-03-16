@@ -70,12 +70,23 @@ dependencies:
   flutter_launcher_icons: ^0.14.4
   uuid: ^4.5.2
   toastification: ^3.0.3
+  firebase_core: ^4.4.0
+  firebase_messaging: ^16.1.1
+  geolocator: ^14.0.2
+  mobile_scanner: ^7.2.0
+  maplibre_gl: ^0.25.0
+  lottie: ^3.3.2
+  scrollable_positioned_list: ^0.3.8
+  shimmer: ^3.0.0
+  url_launcher: ^6.3.2
+  flutter_map: ^8.2.2
+  latlong2: ^0.9.1
+  google_maps_flutter: ^2.14.2
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  firebase_core: ^4.4.0
-  firebase_messaging: ^16.1.1
-
+  flutter_local_notifications: ^20.1.0
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -114,6 +125,15 @@ flutter:
   # in this "flutter" section. Each entry in this list should have a
   # "family" key with the font family name, and a "fonts" key with a
   # list giving the asset and other descriptors for the font. For
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/images/icon_driver.png" # ĐƯỜNG DẪN ĐẾN FILE ẢNH CỦA BẠN
+  adaptive_icon_background: "#D06034" # Ví dụ lấy màu cam ShopeeFood bạn hỏi lúc nãy
+  min_sdk_android: 21 # Tuỳ chọn
+
+
   # example:
 fonts:
   - family: ShopeeDisplay

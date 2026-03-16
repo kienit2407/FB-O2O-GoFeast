@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hive_ce_flutter/adapters.dart';
 
 import 'core/di/providers.dart'; // bootstrapOverrides()
 
@@ -19,6 +20,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async {
   final overrides = await bootstrapOverrides();
   // Khởi tạo Firebase
+  await Hive.initFlutter();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   print('Firebase init OK');
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);

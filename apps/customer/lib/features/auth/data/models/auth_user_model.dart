@@ -1,7 +1,8 @@
 import '../../domain/entities/auth_user.dart';
 
 double _toDouble(dynamic x) => (x as num).toDouble();
-DateTime? _toDate(dynamic v) => v == null ? null : DateTime.tryParse(v.toString());
+DateTime? _toDate(dynamic v) =>
+    v == null ? null : DateTime.tryParse(v.toString());
 
 class OAuthProviderModel extends OAuthProvider {
   const OAuthProviderModel({
@@ -10,7 +11,8 @@ class OAuthProviderModel extends OAuthProvider {
     super.email,
   });
 
-  factory OAuthProviderModel.fromJson(Map<String, dynamic> j) => OAuthProviderModel(
+  factory OAuthProviderModel.fromJson(Map<String, dynamic> j) =>
+      OAuthProviderModel(
         provider: (j['provider'] ?? '').toString(),
         providerId: (j['provider_id'] ?? j['providerId'] ?? '').toString(),
         email: j['email'] as String?,
@@ -21,9 +23,11 @@ class GeoPointModel extends GeoPoint {
   const GeoPointModel({required super.type, required super.coordinates});
 
   factory GeoPointModel.fromJson(Map<String, dynamic> j) => GeoPointModel(
-        type: (j['type'] ?? 'Point').toString(),
-        coordinates: ((j['coordinates'] as List?) ?? const []).map(_toDouble).toList(),
-      );
+    type: (j['type'] ?? 'Point').toString(),
+    coordinates: ((j['coordinates'] as List?) ?? const [])
+        .map(_toDouble)
+        .toList(),
+  );
 }
 
 class CurrentLocationModel extends CurrentLocation {
@@ -37,9 +41,12 @@ class CurrentLocationModel extends CurrentLocation {
     super.updatedAt,
   });
 
-  factory CurrentLocationModel.fromJson(Map<String, dynamic> j) => CurrentLocationModel(
+  factory CurrentLocationModel.fromJson(Map<String, dynamic> j) =>
+      CurrentLocationModel(
         type: (j['type'] ?? 'Point').toString(),
-        coordinates: ((j['coordinates'] as List?) ?? const []).map(_toDouble).toList(),
+        coordinates: ((j['coordinates'] as List?) ?? const [])
+            .map(_toDouble)
+            .toList(),
         address: j['address']?.toString(),
         receiverName: j['receiver_name']?.toString(),
         receiverPhone: j['receiver_phone']?.toString(),
@@ -67,7 +74,9 @@ class SavedAddressModel extends SavedAddress {
       address: (j['address'] ?? '').toString(),
       location: (loc is Map<String, dynamic>)
           ? GeoPointModel.fromJson(loc)
-          : (loc is Map ? GeoPointModel.fromJson(loc.cast<String, dynamic>()) : null),
+          : (loc is Map
+                ? GeoPointModel.fromJson(loc.cast<String, dynamic>())
+                : null),
       receiverName: j['receiver_name']?.toString(),
       receiverPhone: j['receiver_phone']?.toString(),
       deliveryNote: j['delivery_note']?.toString(),
@@ -98,13 +107,15 @@ class CustomerProfileModel extends CustomerProfile {
       userId: (j['user_id'] ?? '').toString(),
       currentLocation: (cur is Map<String, dynamic>)
           ? CurrentLocationModel.fromJson(cur)
-          : (cur is Map ? CurrentLocationModel.fromJson(cur.cast<String, dynamic>()) : null),
+          : (cur is Map
+                ? CurrentLocationModel.fromJson(cur.cast<String, dynamic>())
+                : null),
       savedAddresses: list
           .whereType<Map>()
           .map((e) => SavedAddressModel.fromJson(e.cast<String, dynamic>()))
           .toList(),
-      totalOrders: (j['total_orders'] ?? 0) as int,
-      totalSpent: (j['total_spent'] ?? 0) as int,
+      totalOrders: (j['total_orders'] as num?)?.toInt() ?? 0,
+      totalSpent: (j['total_spent'] as num?)?.toInt() ?? 0,
       createdAt: _toDate(j['created_at']),
       updatedAt: _toDate(j['updated_at']),
     );
@@ -118,6 +129,9 @@ class AuthUserModel extends AuthUser {
     super.email,
     super.phone,
     super.fullName,
+    super.status,
+    super.gender,
+    super.dateOfBirth,
     super.avatarUrl,
     super.language,
     required super.notificationEnabled,
@@ -138,6 +152,9 @@ class AuthUserModel extends AuthUser {
       phone: j['phone'] as String?,
       fullName: j['full_name'] as String?,
       avatarUrl: j['avatar_url'] as String?,
+      status: j['status']?.toString(),
+      gender: j['gender']?.toString(),
+      dateOfBirth: _toDate(j['date_of_birth']),
       language: j['language'] as String?,
       notificationEnabled: (j['notification_enabled'] ?? true) as bool,
       authMethods: methods.map((e) => e.toString()).toList(),
@@ -147,7 +164,9 @@ class AuthUserModel extends AuthUser {
           .toList(),
       customerProfile: (profile is Map<String, dynamic>)
           ? CustomerProfileModel.fromJson(profile)
-          : (profile is Map ? CustomerProfileModel.fromJson(profile.cast<String, dynamic>()) : null),
+          : (profile is Map
+                ? CustomerProfileModel.fromJson(profile.cast<String, dynamic>())
+                : null),
     );
   }
 }

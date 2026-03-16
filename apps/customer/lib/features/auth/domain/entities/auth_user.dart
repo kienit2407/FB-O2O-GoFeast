@@ -69,10 +69,12 @@ class SavedAddress {
     this.updatedAt,
   });
 
-  double? get lng =>
-      (location?.coordinates ?? const []).isNotEmpty ? location!.coordinates[0] : null;
-  double? get lat =>
-      (location?.coordinates ?? const []).length > 1 ? location!.coordinates[1] : null;
+  double? get lng => (location?.coordinates ?? const []).isNotEmpty
+      ? location!.coordinates[0]
+      : null;
+  double? get lat => (location?.coordinates ?? const []).length > 1
+      ? location!.coordinates[1]
+      : null;
 }
 
 @immutable
@@ -105,7 +107,9 @@ class CustomerProfile {
 class AuthUser {
   final String id;
   final String role;
-
+  final String? status;
+  final String? gender;
+  final DateTime? dateOfBirth;
   final String? email;
   final String? phone;
   final String? fullName;
@@ -126,6 +130,9 @@ class AuthUser {
     this.phone,
     this.fullName,
     this.avatarUrl,
+    this.status,
+    this.gender,
+    this.dateOfBirth,
     this.language,
     required this.notificationEnabled,
     required this.authMethods,

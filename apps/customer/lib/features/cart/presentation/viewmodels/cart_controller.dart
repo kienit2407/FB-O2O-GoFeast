@@ -7,7 +7,7 @@ import 'cart_state.dart';
 
 class CartController extends StateNotifier<CartState> {
   CartController(this._repo, this.params) : super(const CartState()) {
-    // ✅ vào merchant chỉ load summary (nhẹ, không tạo cart rỗng)
+    // vào merchant chỉ load summary (nhẹ, không tạo cart rỗng)
     unawaited(loadSummary());
   }
 

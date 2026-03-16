@@ -12,18 +12,23 @@ import { TableSession, TableSessionSchema } from '../dinein/schemas';
 import { CartService } from './services/cart.service';
 import { CartPublicController } from './controllers/cart-public.controller';
 import { CartInternalController } from './controllers/cart-internal.controller';
+import { Merchant, MerchantSchema } from '../merchants/schemas';
+import { DineInModule } from '../dinein/dine-in.module';
+import { PublicDineInCartController } from './controllers/public-dinein-cart.controller';
 
 @Module({
     imports: [
+        DineInModule,
         MongooseModule.forFeature([
             { name: Cart.name, schema: CartSchema },
             { name: Product.name, schema: ProductSchema },
             { name: ProductOption.name, schema: ProductOptionSchema },
             { name: Topping.name, schema: ToppingSchema },
             { name: TableSession.name, schema: TableSessionSchema },
+            { name: Merchant.name, schema: MerchantSchema },
         ]),
     ],
-    controllers: [CartPublicController, CartInternalController],
+    controllers: [CartPublicController, CartInternalController, PublicDineInCartController],
     providers: [CartService],
     exports: [CartService],
 })

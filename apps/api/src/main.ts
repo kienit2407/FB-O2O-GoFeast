@@ -37,28 +37,28 @@ async function bootstrap() {
 
   app.enableShutdownHooks();
 
-  const kafkaEnabled = configService.kafkaEnabled === 'true';
-  if (kafkaEnabled) {
-    const kafkaOptions: MicroserviceOptions = {
-      transport: Transport.KAFKA,
-      options: {
-        client: {
-          clientId: configService.kafkaClientId || 'fab-o2o-api',
-          brokers: [configService.kafkaBrokers || 'localhost:9092'],
-        },
-        consumer: {
-          groupId: configService.kafkaGroupId || 'fab-o2o-api-consumer',
-        },
-      },
-    };
+  // const kafkaEnabled = configService.kafkaEnabled === 'true';
+  // if (kafkaEnabled) {
+  //   const kafkaOptions: MicroserviceOptions = {
+  //     transport: Transport.KAFKA,
+  //     options: {
+  //       client: {
+  //         clientId: configService.kafkaClientId || 'fab-o2o-api',
+  //         brokers: [configService.kafkaBrokers || 'localhost:9092'],
+  //       },
+  //       consumer: {
+  //         groupId: configService.kafkaGroupId || 'fab-o2o-api-consumer',
+  //       },
+  //     },
+  //   };
 
-    app.connectMicroservice<MicroserviceOptions>(kafkaOptions);
-    logger.log('Kafka microservice enabled');
-  } else {
-    logger.log('Kafka microservice disabled (KAFKA_ENABLED=false)');
-  }
+  //   app.connectMicroservice<MicroserviceOptions>(kafkaOptions);
+  //   logger.log('Kafka microservice enabled');
+  // } else {
+  //   logger.log('Kafka microservice disabled (KAFKA_ENABLED=false)');
+  // }
 
-  await app.startAllMicroservices();
+  // await app.startAllMicroservices();
   await app.listen(configService.port);
 
   logger.log(`Application is running on: http://localhost:${configService.port}`);

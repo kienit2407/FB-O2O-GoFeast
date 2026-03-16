@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
     IsBoolean,
     IsDateString,
@@ -17,17 +17,18 @@ export class CreateMerchantVoucherDto {
     @Transform(({ value }) => String(value ?? '').trim().toUpperCase())
     code: string;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)
     total_usage_limit?: number;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)
     per_user_limit?: number;
 
-    // optional theo schema (nếu FE bắt buộc thì vẫn ok)
     @IsOptional()
     @IsDateString()
     start_date?: string;

@@ -1,8 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CustomerProfilesService } from '../services/customer-profile.service';
 import { UpdateCurrentLocationDto } from '../dtos/update-current-location.dto';
 import { CreateSavedAddressDto, UpdateSavedAddressDto } from '../dtos/customer-addres.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UpdateCustomerUserInfoDto } from '../dtos/update-customer-user-info.dto';
 
 @Controller('customers/me')
 @UseGuards(AuthGuard('jwt')) // TODO: đổi đúng guard customer của bạn
@@ -13,6 +15,45 @@ export class CustomerMeController {
         if (!userId) throw new BadRequestException('Missing user id in token');
         return userId.toString();
     }
+    @Get('/profile')
+    async getMyProfile(@Req() req: any) {
+        const userId = this.getUserId(req);
+        const data = await this.profiles.getMyProfile(userId);
+        return { success: true, data };
+    }
+
+    @Patch('/profile')
+    async updateMyProfile(
+        @Req() req: any,
+        @Body() dto: UpdateCustomerUserInfoDto,
+    ) {
+        const userId = this.getUserId(req);
+        const data = await this.profiles.updateMyUserInfo(userId, dto);
+        return { success: true, data };
+    }
+
+    @Post('/avatar')
+    @UseInterceptors(
+        FileInterceptor('file', {
+            limits: { fileSize: 5 * 1024 * 1024 },
+        }),
+    )
+    async uploadMyAvatar(
+        @Req() req: any,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        const userId = this.getUserId(req);
+        const data = await this.profiles.uploadMyAvatar(userId, file);
+        return { success: true, data };
+    }
+
+    @Delete('/avatar')
+    async removeMyAvatar(@Req() req: any) {
+        const userId = this.getUserId(req);
+        const data = await this.profiles.removeMyAvatar(userId);
+        return { success: true, data };
+    }
+
     @Patch('/location')
     updateMyLocation(@Req() req: Request, @Body() dto: UpdateCurrentLocationDto) {
         const userId = this.getUserId(req);

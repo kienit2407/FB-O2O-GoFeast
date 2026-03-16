@@ -1,22 +1,17 @@
-import 'dart:ui';
+import 'dart:async';
 
 import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/services/location_service.dart';
 import 'package:customer/features/addresses/data/models/choose_address_result.dart';
+import 'package:customer/features/addresses/data/models/reverse_suggest_models.dart';
 import 'package:customer/features/addresses/data/models/search_place_models.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:lottie/lottie.dart';
-import 'package:maplibre_gl/maplibre_gl.dart';
-
-// Model reverse của bạn (đổi đúng path nếu bạn để chỗ khác)
-import 'package:customer/features/addresses/data/models/reverse_suggest_models.dart';
 
 class ChooseAddressPage extends ConsumerStatefulWidget {
   const ChooseAddressPage({super.key});
@@ -26,23 +21,22 @@ class ChooseAddressPage extends ConsumerStatefulWidget {
 }
 
 class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
-  MapLibreMapController? _map;
-  bool _didAutoGoGps = false;
-  static const String _styleUrl =
-      'https://maps.track-asia.com/styles/v2/streets.json?key=56f5e4e349d7d86b7dec17705331965eec';
+  GoogleMapController? _mapController;
 
-  CameraPosition _lastCameraPos = const CameraPosition(
-    target: LatLng(10.7769, 106.7009),
-    zoom: 14,
-  );
+  LatLng _center = const LatLng(10.7769, 106.7009);
+  double _zoom = 14;
 
-  bool _didInitReverse = false;
-  bool _revealMap = false;
-  bool _coverGone = false; // remove overlay sau khi fade xong
+  bool _didInitMap = false;
+  bool _coverGone = false;
   double _coverOpacity = 1.0;
+  bool _isDraggingMap = false;
+
+  Timer? _reverseDebounce;
+  LatLng? _lastReverseCenter;
 
   @override
   void dispose() {
+    _reverseDebounce?.cancel();
     super.dispose();
   }
 
@@ -59,36 +53,81 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
     setState(() => _coverOpacity = 0.0);
   }
 
-  void _showMap() {
-    if (_revealMap) return;
-    setState(() => _revealMap = true);
+  bool _isNear(LatLng a, LatLng b, {double threshold = 0.00008}) {
+    return (a.latitude - b.latitude).abs() < threshold &&
+        (a.longitude - b.longitude).abs() < threshold;
   }
 
-  void _reverseAt(double lat, double lng) {
-    debugPrint('[reverseAt] lat=$lat lng=$lng');
-    ref.read(chooseAddressControllerProvider.notifier).setCenter(lat, lng);
+  void _scheduleReverse(LatLng center, {bool force = false}) {
+    if (!force &&
+        _lastReverseCenter != null &&
+        _isNear(_lastReverseCenter!, center)) {
+      return;
+    }
+
+    _reverseDebounce?.cancel();
+    _reverseDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      _lastReverseCenter = center;
+      ref
+          .read(chooseAddressControllerProvider.notifier)
+          .setCenter(center.latitude, center.longitude);
+    });
+  }
+
+  Future<void> _initMapLocation() async {
+    if (_didInitMap) return;
+    _didInitMap = true;
+
+    try {
+      final loc = ref.read(locationServiceProvider);
+      final pos = await loc.getCurrentLocation();
+
+      if (!mounted) return;
+
+      final target = LatLng(pos.lat, pos.lng);
+
+      setState(() {
+        _center = target;
+        _zoom = 16;
+      });
+
+      await _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: target, zoom: 16),
+        ),
+      );
+
+      _scheduleReverse(target, force: true);
+    } catch (_) {
+      _scheduleReverse(_center, force: true);
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 180));
+      if (mounted) _hideCover();
+    }
   }
 
   Future<void> _goToMyLocation() async {
     try {
       final loc = ref.read(locationServiceProvider);
-      final pos = await loc.getCurrentLocation(); // {lat,lng}
+      final pos = await loc.getCurrentLocation();
 
       if (!mounted) return;
 
-      // move camera (an toàn: try/catch)
-      try {
-        await _map?.animateCamera(
-          CameraUpdate.newLatLngZoom(LatLng(pos.lat, pos.lng), 16),
-        );
-      } catch (_) {}
-      _lastCameraPos = CameraPosition(
-        target: LatLng(pos.lat, pos.lng),
-        zoom: 16,
+      final target = LatLng(pos.lat, pos.lng);
+
+      setState(() {
+        _center = target;
+        _zoom = 16;
+      });
+
+      await _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: target, zoom: 16),
+        ),
       );
 
-      // gọi reverse luôn (khỏi chờ cameraIdle)
-      _reverseAt(pos.lat, pos.lng);
+      _scheduleReverse(target, force: true);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -101,12 +140,12 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(chooseAddressControllerProvider);
 
-    // ✅ map suggestions từ reverse -> _PlaceItem
     final items = state.suggestions.map((e) {
       final name = (e.name ?? '').trim();
       if (name.isNotEmpty) {
         return _PlaceItem(title: name, subtitle: e.address, raw: e);
       }
+
       final (t, sub) = _splitByFirstComma(e.address);
       return _PlaceItem(
         title: t.isNotEmpty ? t : e.address,
@@ -117,6 +156,7 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
 
     return Scaffold(
       extendBodyBehindAppBar: true,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -150,14 +190,12 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
 
                     if (picked == null) return;
 
-                    // build address string
                     final addressStr = picked.subtitle.trim().isNotEmpty
                         ? '${picked.title}, ${picked.subtitle}'
                         : picked.title;
 
                     if (!context.mounted) return;
 
-                    //  Trả kết quả về AddAddressPage
                     Navigator.of(context).pop(
                       ChooseAddressResult(
                         address: addressStr,
@@ -174,108 +212,92 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
                 left: 0,
                 right: 0,
                 child: state.isLoading
-                    ? const LinearProgressIndicator(minHeight: 1, color: AppColor.primary, backgroundColor: AppColor.background,)
+                    ? const LinearProgressIndicator(
+                        minHeight: 1,
+                        color: AppColor.primary,
+                        backgroundColor: AppColor.background,
+                      )
                     : const SizedBox.shrink(),
               ),
             ],
           ),
         ),
       ),
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           Positioned.fill(
-            child: MapLibreMap(
-              styleString: _styleUrl,
-              initialCameraPosition: _lastCameraPos,
-
-              onMapCreated: (c) {
-                _map = c;
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _center,
+                zoom: _zoom,
+              ),
+              onMapCreated: (controller) {
+                _mapController = controller;
+                _initMapLocation();
               },
-              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                Factory<OneSequenceGestureRecognizer>(
-                  () => EagerGestureRecognizer(),
-                ),
+              onCameraMoveStarted: () {
+                if (!mounted) return;
+                if (!_isDraggingMap) {
+                  setState(() => _isDraggingMap = true);
+                }
               },
-              onStyleLoadedCallback: () async {
-                if (_didInitReverse) return;
-                _didInitReverse = true;
+              onCameraMove: (position) {
+                _center = position.target;
+                _zoom = position.zoom;
+              },
+              onCameraIdle: () {
+                if (!mounted) return;
 
-                //  Auto jump về GPS 1 lần (an toàn: sau style loaded)
-                if (!_didAutoGoGps) {
-                  _didAutoGoGps = true;
-                  try {
-                    final loc = ref.read(locationServiceProvider);
-                    final pos = await loc
-                        .getCurrentLocation(); // có thể throw nếu chưa permission
-
-                    if (!mounted) return;
-
-                    // move camera về GPS
-                    try {
-                      await _map?.animateCamera(
-                        CameraUpdate.newLatLngZoom(
-                          LatLng(pos.lat, pos.lng),
-                          16,
-                        ),
-                      );
-                    } catch (_) {}
-                    _lastCameraPos = CameraPosition(
-                      target: LatLng(pos.lat, pos.lng),
-                      zoom: 16,
-                    );
-                    // reverse ngay tại GPS (khỏi chờ camera idle)
-                    _reverseAt(pos.lat, pos.lng);
-                    await Future.delayed(const Duration(milliseconds: 180));
-                    if (mounted) _hideCover();
-                    return;
-                  } catch (_) {
-                    // ignore: không có quyền / không lấy được GPS -> fallback reverse center hiện tại
-                  }
-                  final center = _lastCameraPos.target;
-                  _reverseAt(center.latitude, center.longitude);
-
-                  await Future.delayed(const Duration(milliseconds: 120));
-                  if (mounted) _hideCover();
+                if (_isDraggingMap) {
+                  setState(() => _isDraggingMap = false);
                 }
 
-                // fallback: reverse tại center hiện tại
-                final center = _lastCameraPos.target;
-                _reverseAt(center.latitude, center.longitude);
+                _scheduleReverse(_center);
               },
-
-              onCameraIdle: () async {
-                // lấy center thật sự từ map (không phụ thuộc _lastCameraPos)
-                try {
-                  final bounds = await _map?.getVisibleRegion();
-                  if (bounds == null) return;
-
-                  final center = LatLng(
-                    (bounds.northeast.latitude + bounds.southwest.latitude) / 2,
-                    (bounds.northeast.longitude + bounds.southwest.longitude) /
-                        2,
-                  );
-
-                  _reverseAt(
-                    center.latitude,
-                    center.longitude,
-                  ); // có debugPrint ở đây
-                } catch (_) {}
-              },
-
-              // onCameraIdle: () {
-              //   final center = _lastCameraPos.target;
-              //   _reverseAt(center.latitude, center.longitude);
-              // },
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
               compassEnabled: false,
+              mapToolbarEnabled: false,
               rotateGesturesEnabled: false,
               tiltGesturesEnabled: false,
-              myLocationEnabled: false,
-              myLocationTrackingMode: MyLocationTrackingMode.none, // 0.25.0 ✅
+              zoomControlsEnabled: false,
+              indoorViewEnabled: false,
+              buildingsEnabled: true,
+              trafficEnabled: false,
             ),
           ),
 
           const Center(child: _CenterPin()),
+
+          if (_isDraggingMap)
+            Positioned(
+              top: 126,
+              left: 16,
+              right: 16,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.70),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Đang cập nhật địa chỉ...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           if (!_coverGone)
             Positioned.fill(
               child: AnimatedOpacity(
@@ -284,7 +306,9 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
                 curve: Curves.easeOut,
                 onEnd: () {
                   if (!mounted) return;
-                  if (_coverOpacity == 0.0) setState(() => _coverGone = true);
+                  if (_coverOpacity == 0.0) {
+                    setState(() => _coverGone = true);
+                  }
                 },
                 child: ColoredBox(
                   color: Colors.white,
@@ -294,28 +318,22 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
                       height: 100,
                       child: Lottie.asset(
                         'assets/icons/location_seeking.json',
-                        delegates: LottieDelegates(
-                          values: [
-                            ValueDelegate.color(const ['**']),
-                          ],
-                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          // ✅ Nút định vị (đưa pin về GPS)
+
           Positioned(
             right: 16,
-            bottom: 210, // nằm trên sheet
+            bottom: 210,
             child: _LocateButton(
-              loading: state.isLoading, // optional: show loading
+              loading: state.isLoading,
               onTap: _goToMyLocation,
             ),
           ),
 
-          // ✅ GIỮ NGUYÊN bottom sheet của bạn — chỉ đổi items -> từ reverse
           DraggableScrollableSheet(
             initialChildSize: 0.20,
             minChildSize: 0.18,
@@ -327,11 +345,9 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
                 scrollController: scrollController,
                 items: items,
                 onTapItem: (item) {
-                  final raw = item.raw; // ReverseSuggestItem
-                  final lat =
-                      raw.lat ?? state.lat ?? _lastCameraPos.target.latitude;
-                  final lng =
-                      raw.lng ?? state.lng ?? _lastCameraPos.target.longitude;
+                  final raw = item.raw;
+                  final lat = raw.lat ?? state.lat ?? _center.latitude;
+                  final lng = raw.lng ?? state.lng ?? _center.longitude;
 
                   Navigator.of(context).pop(
                     ChooseAddressResult(
@@ -350,8 +366,6 @@ class _ChooseAddressPageState extends ConsumerState<ChooseAddressPage> {
     );
   }
 }
-
-// ===================== Widgets (GIỮ NGUYÊN UI) =====================
 
 class _LocateButton extends StatelessWidget {
   const _LocateButton({required this.onTap, this.loading = false});
@@ -447,112 +461,106 @@ class _SuggestionSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.96),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.10),
-                blurRadius: 18,
-                offset: const Offset(0, -10),
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.10),
+            blurRadius: 18,
+            offset: const Offset(0, -10),
           ),
-          child: Column(
-            children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE5E7EB),
-                  borderRadius: BorderRadius.circular(999),
+        ],
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 38,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE5E7EB),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 5),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Địa chỉ gợi ý',
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF6B7280),
                 ),
               ),
-              const SizedBox(height: 10),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 5),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Địa chỉ gợi ý',
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF6B7280),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              controller: scrollController,
+              itemCount: items.length,
+              padding: EdgeInsets.zero,
+              primary: false,
+              separatorBuilder: (_, __) => const Divider(
+                height: 1,
+                thickness: 1,
+                color: Color(0xFFF1F3F5),
+              ),
+              itemBuilder: (context, i) {
+                final item = items[i];
+                return InkWell(
+                  onTap: () => onTapItem(item),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.location_on_outlined,
+                            size: 22,
+                            color: Color(0xFF111827),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                style: const TextStyle(
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                item.subtitle,
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  height: 1.25,
+                                  color: Color(0xFF6B7280),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  controller: scrollController,
-                  itemCount: items.length,
-                  padding: EdgeInsets.zero,
-                  primary: false,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    thickness: 1,
-                    color: Color(0xFFF1F3F5),
-                  ),
-                  itemBuilder: (context, i) {
-                    final item = items[i];
-                    return InkWell(
-                      onTap: () => onTapItem(item),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 2),
-                              child: Icon(
-                                Icons.location_on_outlined,
-                                size: 22,
-                                color: Color(0xFF111827),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.title,
-                                    style: const TextStyle(
-                                      fontSize: 15.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF111827),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    item.subtitle,
-                                    style: const TextStyle(
-                                      fontSize: 13.5,
-                                      height: 1.25,
-                                      color: Color(0xFF6B7280),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
+                );
+              },
+            ),
           ),
-        ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
@@ -604,8 +612,6 @@ class _CenterPin extends StatelessWidget {
 class _PlaceItem {
   final String title;
   final String subtitle;
-
-  // giữ để sau này bạn pop kết quả
   final ReverseSuggestItem raw;
 
   const _PlaceItem({

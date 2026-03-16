@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+    ArrayUnique,
     IsArray,
     IsBoolean,
     IsDateString,
@@ -11,7 +12,14 @@ import {
     Min,
     ValidateNested,
 } from 'class-validator';
-import { PromotionApplyLevel, PromotionScope, PromotionType } from '../../schemas/promotion.schema';
+import {
+    PromotionActivationType,
+    PromotionApplyLevel,
+    PromotionOrderType,
+    PromotionPaymentMethod,
+    PromotionScope,
+    PromotionType,
+} from '../../schemas/promotion.schema';
 
 class ConditionsDto {
     @IsOptional()
@@ -72,15 +80,50 @@ export class UpdateAdminPromotionDto {
     @Min(0)
     min_order_amount?: number;
 
+    // ===== NEW =====
+    @IsOptional()
+    @IsEnum(PromotionActivationType)
+    activation_type?: PromotionActivationType;
+
+    @Type(() => Number)
+    @IsOptional()
+    @IsNumber()
+    priority?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    can_stack_with_voucher?: boolean;
+
+    @IsOptional()
+    @IsArray()
+    @ArrayUnique()
+    @IsEnum(PromotionOrderType, { each: true })
+    allowed_order_types?: PromotionOrderType[];
+
+    @IsOptional()
+    @IsArray()
+    @ArrayUnique()
+    @IsEnum(PromotionPaymentMethod, { each: true })
+    allowed_payment_methods?: PromotionPaymentMethod[];
+
+    @IsOptional()
+    @IsString()
+    exclusive_group?: string;
+
     @IsOptional()
     @IsBoolean()
     show_as_popup?: boolean;
+    @IsOptional()
+    @IsString()
+    push_noti_title?: string;
 
+    @IsOptional()
+    @IsString()
+    push_noti_body?: string;
     @IsOptional()
     @IsBoolean()
     is_active?: boolean;
 
-    // ✅ admin-only
     @IsOptional()
     @IsBoolean()
     show_push_noti?: boolean;

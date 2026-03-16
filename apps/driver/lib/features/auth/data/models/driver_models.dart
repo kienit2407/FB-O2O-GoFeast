@@ -20,7 +20,7 @@ class DriverProfile {
   final String? idCardBackUrl;
 
   final String? licenseNumber;
-  final String? licenseType; // A1/A2/B1/B2
+  final String? licenseType;
   final String? licenseImageUrl;
   final DateTime? licenseExpiry;
 
@@ -51,27 +51,45 @@ class DriverProfile {
   });
 
   factory DriverProfile.fromJson(Map<String, dynamic> j) {
+    final reasonsRaw = j['verification_reasons'] ?? j['verificationReasons'];
+
     return DriverProfile(
-      idCardNumber: j['id_card_number'],
-      idCardFrontUrl: j['id_card_front_url'],
-      idCardBackUrl: j['id_card_back_url'],
-      licenseNumber: j['license_number'],
-      licenseType: j['license_type'],
-      licenseImageUrl: j['license_image_url'],
-      licenseExpiry: j['license_expiry'] != null
-          ? DateTime.tryParse(j['license_expiry'])
+      idCardNumber:
+          j['id_card_number']?.toString() ?? j['idCardNumber']?.toString(),
+      idCardFrontUrl:
+          j['id_card_front_url']?.toString() ?? j['idCardFrontUrl']?.toString(),
+      idCardBackUrl:
+          j['id_card_back_url']?.toString() ?? j['idCardBackUrl']?.toString(),
+      licenseNumber:
+          j['license_number']?.toString() ?? j['licenseNumber']?.toString(),
+      licenseType:
+          j['license_type']?.toString() ?? j['licenseType']?.toString(),
+      licenseImageUrl:
+          j['license_image_url']?.toString() ??
+          j['licenseImageUrl']?.toString(),
+      licenseExpiry: (j['license_expiry'] ?? j['licenseExpiry']) != null
+          ? DateTime.tryParse(
+              (j['license_expiry'] ?? j['licenseExpiry']).toString(),
+            )
           : null,
-      vehicleBrand: j['vehicle_brand'],
-      vehicleModel: j['vehicle_model'],
-      vehiclePlate: j['vehicle_plate'],
-      vehicleImageUrl: j['vehicle_image_url'],
-      verificationStatus: parseDriverStatus(j['verification_status']),
-      verificationReasons:
-          (j['verification_reasons'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const [],
-      verificationNote: j['verification_note'],
+      vehicleBrand:
+          j['vehicle_brand']?.toString() ?? j['vehicleBrand']?.toString(),
+      vehicleModel:
+          j['vehicle_model']?.toString() ?? j['vehicleModel']?.toString(),
+      vehiclePlate:
+          j['vehicle_plate']?.toString() ?? j['vehiclePlate']?.toString(),
+      vehicleImageUrl:
+          j['vehicle_image_url']?.toString() ??
+          j['vehicleImageUrl']?.toString(),
+      verificationStatus: parseDriverStatus(
+        (j['verification_status'] ?? j['verificationStatus'])?.toString(),
+      ),
+      verificationReasons: reasonsRaw is List
+          ? reasonsRaw.map((e) => e.toString()).toList()
+          : const [],
+      verificationNote:
+          j['verification_note']?.toString() ??
+          j['verificationNote']?.toString(),
     );
   }
 }
@@ -83,7 +101,6 @@ class DriverMe {
   final String? fullName;
   final String role;
   final String? avatarUrl;
-
   final DriverProfile? driverProfile;
 
   DriverMe({
@@ -100,17 +117,23 @@ class DriverMe {
       driverProfile?.verificationStatus ?? DriverVerificationStatus.draft;
 
   factory DriverMe.fromJson(Map<String, dynamic> j) {
-    final p = j['driver_profile'];
+    final p = j['driver_profile'] ?? j['driverProfile'];
+
     return DriverMe(
       id: (j['id'] ?? j['_id'] ?? '').toString(),
-      email: j['email'],
-      phone: j['phone'],
-      fullName: j['full_name'],
+      email: j['email']?.toString(),
+      phone: j['phone']?.toString(),
+      fullName: (j['full_name'] ?? j['fullName'])?.toString(),
       role: (j['role'] ?? '').toString(),
-      avatarUrl: j['avatar_url'],
-      driverProfile: (p is Map<String, dynamic>)
-          ? DriverProfile.fromJson(p)
+      avatarUrl: (j['avatar_url'] ?? j['avatarUrl'])?.toString(),
+      driverProfile: p is Map
+          ? DriverProfile.fromJson(Map<String, dynamic>.from(p))
           : null,
     );
+  }
+
+  @override
+  String toString() {
+    return 'DriverMe(id: $id, role: $role, status: $status)';
   }
 }

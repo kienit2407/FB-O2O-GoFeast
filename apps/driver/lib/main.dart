@@ -11,7 +11,7 @@ import 'core/di/providers.dart'; // bootstrapOverrides()
 // 1. Hàm này BẮT BUỘC phải nằm ở cấp cao nhất (Top-level), ngoài mọi class
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  DartPluginRegistrant.ensureInitialized(); // ✅ cho background isolate
+  DartPluginRegistrant.ensureInitialized(); //  cho background isolate
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 

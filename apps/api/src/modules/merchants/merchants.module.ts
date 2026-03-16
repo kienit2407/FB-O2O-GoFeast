@@ -29,6 +29,7 @@ import { BenefitsModule } from '../benefits/benefits.module';
 import { CartModule } from '../carts/cart.module';
 import { ProductsPublicService } from './services/products-public.service';
 import { ProductsPublicController } from './controllers/products-public.controller';
+import { ReviewsModule } from '../reviews/reviews.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ProductsPublicController } from './controllers/products-public.controll
     GeoModule,
     PromotionsModule,
     CartModule,
+    ReviewsModule,
     FavoritesModule,     // Giả sử chứa MerchantFavoritesService
     BenefitsModule,      // Giả sử chứa BenefitsUsageService
     MongooseModule.forFeature([

@@ -126,7 +126,8 @@ export class DriverProfile {
 
     @Prop({ type: String, default: null })
     bank_account_name?: string | null;
-
+    @Prop({ type: Number, default: 0 })
+    total_reviews: number;
     created_at: Date;
     updated_at: Date;
 }

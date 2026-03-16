@@ -1,6 +1,5 @@
-
 class UrlConfig {
-  static String backendBaseUrl = 'http://localhost:4000'; 
+  static String backendBaseUrl = 'http://localhost:4000';
   static const String frontendBaseUrl = 'http://localhost:8080';
   // oauth start
   static String driverGoogleOAuth() =>

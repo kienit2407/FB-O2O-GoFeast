@@ -37,7 +37,16 @@ export enum PaymentStatus {
   REFUNDED = 'refunded',
 }
 
-@Schema({ collection: 'orders', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
+//  thêm: item union type
+export enum OrderItemType {
+  PRODUCT = 'product',
+  TOPPING = 'topping',
+}
+
+@Schema({
+  collection: 'orders',
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+})
 export class Order {
   _id: Types.ObjectId;
 
@@ -47,68 +56,147 @@ export class Order {
   @Prop({ type: String, enum: OrderType, required: true })
   order_type: OrderType;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  customer_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  customer_id: Types.ObjectId | null;
 
   @Prop({ type: Types.ObjectId, ref: 'Merchant', required: true })
   merchant_id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
-  driver_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  driver_id: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'TableSession' })
-  table_session_id: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'TableSession', default: null })
+  table_session_id: Types.ObjectId | null;
 
   @Prop({
-    type: [{
-      _id: Types.ObjectId,
-      product_id: Types.ObjectId,
-      product_name: String,
-      product_image: String,
-      quantity: Number,
-      base_price: Number,
-      unit_price: Number,
-      selected_options: {
-        type: [{
-          option_name: String,
-          choice_name: String,
-          price_modifier: Number
-        }],
-        default: []
+    type: [
+      {
+        _id: Types.ObjectId,
+
+        //  NEW: item union
+        item_type: { type: String, enum: Object.values(OrderItemType), default: OrderItemType.PRODUCT },
+        topping_id: Types.ObjectId,
+        topping_name: String,
+
+        // product fields (giữ nguyên)
+        product_id: Types.ObjectId,
+        product_name: String,
+        product_image: String,
+
+        quantity: Number,
+        base_price: Number,
+        unit_price: Number,
+
+        selected_options: {
+          type: [
+            {
+              option_name: String,
+              choice_name: String,
+              price_modifier: Number,
+            },
+          ],
+          default: [],
+        },
+
+        //  NEW: toppings đi kèm product (nằm trong item product)
+        selected_toppings: {
+          type: [
+            {
+              topping_id: Types.ObjectId,
+              topping_name: String,
+              quantity: Number,
+              unit_price: Number,
+            },
+          ],
+          default: [],
+        },
+
+        note: String,
+        item_total: Number,
       },
-      note: String,
-      item_total: Number
-    }],
-    default: []
+    ],
+    default: [],
   })
-  items: {
-    _id: Types.ObjectId;
-    product_id: Types.ObjectId;
-    product_name: string;
-    product_image: string;
-    quantity: number;
-    base_price: number;
-    unit_price: number;
-    selected_options: {
-      option_name: string;
-      choice_name: string;
-      price_modifier: number;
-    }[];
-    note: string;
-    item_total: number;
-  }[];
+  items: (
+    | {
+      _id: Types.ObjectId;
+
+      //  union
+      item_type: OrderItemType;
+
+      // product item
+      product_id: Types.ObjectId;
+      product_name: string;
+      product_image: string;
+
+      // toppings đi kèm product
+      selected_toppings: {
+        topping_id: Types.ObjectId;
+        topping_name: string;
+        quantity: number;
+        unit_price: number;
+      }[];
+
+      // common
+      quantity: number;
+      base_price: number;
+      unit_price: number;
+
+      selected_options: {
+        option_name: string;
+        choice_name: string;
+        price_modifier: number;
+      }[];
+
+      note: string;
+      item_total: number;
+    }
+    | {
+      _id: Types.ObjectId;
+
+      //  union
+      item_type: OrderItemType;
+
+      // topping standalone item
+      topping_id: Types.ObjectId;
+      topping_name: string;
+
+      // common
+      quantity: number;
+      base_price: number;
+      unit_price: number;
+
+      // giữ field cũ cho đồng nhất (có thể để [])
+      selected_options: {
+        option_name: string;
+        choice_name: string;
+        price_modifier: number;
+      }[];
+
+      // giữ field cũ cho đồng nhất (có thể để [])
+      selected_toppings: {
+        topping_id: Types.ObjectId;
+        topping_name: string;
+        quantity: number;
+        unit_price: number;
+      }[];
+
+      note: string;
+      item_total: number;
+    }
+  )[];
 
   @Prop({
     type: {
       address: String,
       location: {
         type: { type: String, enum: ['Point'], default: 'Point' },
-        coordinates: { type: [Number] }
+        coordinates: { type: [Number] },
       },
       receiver_name: String,
       receiver_phone: String,
-      note: String
-    }
+      note: String,
+    },
   })
   delivery_address?: {
     address: string;
@@ -121,12 +209,24 @@ export class Order {
     note: string;
   };
 
+  //  NEW: audit-friendly (before discount)
+  @Prop({ default: 0 })
+  subtotal_before_discount: number;
+
+  //  NEW: audit-friendly (before discount)
+  @Prop({ default: 0 })
+  delivery_fee_before_discount: number;
+
   @Prop({ default: 0 })
   subtotal: number;
 
   @Prop({ default: 0 })
   delivery_fee: number;
 
+  @Prop({ type: String })
+  order_note?: string;
+  @Prop({ type: Date, default: null })
+  driver_arrived_at: Date | null;
   @Prop({ default: 0 })
   platform_fee: number;
 
@@ -134,9 +234,9 @@ export class Order {
     type: {
       food_discount: Number,
       delivery_discount: Number,
-      total_discount: Number
+      total_discount: Number,
     },
-    default: {}
+    default: {},
   })
   discounts: {
     food_discount?: number;
@@ -145,14 +245,16 @@ export class Order {
   };
 
   @Prop({
-    type: [{
-      voucher_id: Types.ObjectId,
-      voucher_code: String,
-      scope: String,
-      sponsor: String,
-      discount_amount: Number
-    }],
-    default: []
+    type: [
+      {
+        voucher_id: Types.ObjectId,
+        voucher_code: String,
+        scope: String,
+        sponsor: String,
+        discount_amount: Number,
+      },
+    ],
+    default: [],
   })
   applied_vouchers: {
     voucher_id: Types.ObjectId;
@@ -171,48 +273,54 @@ export class Order {
   @Prop({ type: String, enum: PaymentStatus, default: PaymentStatus.PENDING })
   payment_status: PaymentStatus;
 
-  @Prop()
-  paid_at: Date;
+  @Prop({ type: Date, default: null }) // Khai báo rõ kiểu Date cho Mongoose
+  paid_at?: Date;
 
   @Prop({ type: String, enum: OrderStatus, default: OrderStatus.PENDING })
   status: OrderStatus;
 
   @Prop({
-    type: [{
-      status: String,
-      changed_at: Date,
-      changed_by: Types.ObjectId,
-      note: String
-    }],
-    default: []
+    type: [
+      {
+        status: String,
+        changed_at: Date,
+        changed_by: { type: Types.ObjectId, ref: 'User', default: null },
+        note: String,
+      },
+    ],
+    default: [],
   })
   status_history: {
     status: string;
     changed_at: Date;
-    changed_by: Types.ObjectId;
+    changed_by: Types.ObjectId | null;
     note: string;
   }[];
 
-  @Prop()
+  @Prop({ type: Number })
   estimated_prep_time: number;
 
-  @Prop()
-  estimated_delivery_time: Date;
+  @Prop({ type: Date, default: null })
+  estimated_delivery_time: Date | null;
 
   @Prop({ default: false })
   is_rated: boolean;
 
-  @Prop({ type: String, enum: ['customer', 'merchant', 'driver', 'system'] })
-  cancelled_by: string;
+  @Prop({ type: String, enum: ['customer', 'merchant', 'driver', 'system'], default: null })
+  cancelled_by: string | null;
 
-  @Prop()
-  cancel_reason: string;
+  @Prop({ type: String, default: null })
+  cancel_reason: string | null;
 
-  @Prop()
-  driver_assigned_at: Date;
+  // Cũ: @Prop({ default: null })
+  @Prop({ type: Date, default: null })
+  driver_assigned_at: Date | null;
 
-  @Prop()
-  driver_accept_deadline_at: Date;
+  @Prop({ type: [String], default: [] })
+  proof_of_delivery_images: string[];
+
+  @Prop({ type: Date, default: null })
+  driver_accept_deadline_at: Date | null;
 
   @Prop({ default: 0 })
   assignment_attempts: number;
@@ -229,9 +337,9 @@ export class Order {
       driver_net: Number,
       platform_fee: Number,
       platform_revenue: Number,
-      sponsor_cost: Number
+      sponsor_cost: Number,
     },
-    default: {}
+    default: {},
   })
   settlement: {
     merchant_gross?: number;
@@ -253,6 +361,7 @@ export class Order {
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
 
+OrderSchema.index({ 'delivery_address.location': '2dsphere' });
 OrderSchema.index({ order_number: 1 }, { unique: true });
 OrderSchema.index({ customer_id: 1, created_at: -1 });
 OrderSchema.index({ merchant_id: 1, status: 1, created_at: -1 });

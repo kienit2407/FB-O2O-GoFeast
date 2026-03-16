@@ -5,7 +5,7 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/features/addresses/presentation/viewmodels/address_state.dart';
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
-import 'package:customer/features/home/presentation/viewmodels/home_feed_sections.dart';
+import 'package:customer/features/home/presentation/widgets/home_feed_sections.dart';
 import 'package:customer/features/home/presentation/widgets/home_carousel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -148,7 +148,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   addressText: addr.current?.address?.trim(),
 
                   onTapSearch: () {
-                    context.go('/address');
+                    context.push('/search');
                   },
                   onTapAddress: () {
                     context.push('/address');
@@ -296,7 +296,7 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
     required this.onTapFavorite,
     this.hintText = 'Siêu Deal Đầu Năm, Giảm Tới 50%',
   });
-final VoidCallback onTapFavorite; // ✅
+  final VoidCallback onTapFavorite; // ✅
   final double topPadding;
   final String? addressText;
   final VoidCallback onTapSearch;
@@ -632,18 +632,6 @@ class _SearchHintTyperState extends State<_SearchHintTyper> {
             fontWeight: FontWeight.w600,
           ),
       overflow: TextOverflow.ellipsis,
-    );
-  }
-}
-
-class SearchPage extends StatelessWidget {
-  const SearchPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tìm kiếm')),
-      body: const Center(child: Text('Search screen here...')),
     );
   }
 }

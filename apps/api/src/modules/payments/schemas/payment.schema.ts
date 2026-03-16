@@ -22,7 +22,7 @@ export enum PaymentStatus {
 export class Payment {
   _id: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Order' })
+  @Prop({ type: Types.ObjectId, ref: 'Order', required: true, index: true })
   order_id: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
@@ -40,8 +40,9 @@ export class Payment {
   @Prop({ required: true, unique: true })
   idempotency_key: string;
 
-  @Prop()
-  gateway_transaction_id: string;
+  @Prop({ type: String, default: null })
+  gateway_transaction_id: string | null;
+
 
   @Prop({ type: Object, default: {} })
   gateway_response: Record<string, any>;
@@ -52,14 +53,16 @@ export class Payment {
   @Prop({ default: 0 })
   refund_amount: number;
 
-  @Prop()
-  refund_reason: string;
+  @Prop({ type: String, default: null })
+  refund_reason: string | null;
 
-  @Prop()
-  refunded_at: Date;
 
-  @Prop()
-  completed_at: Date;
+  @Prop({ type: Date, default: null })
+  refunded_at: Date | null;
+
+
+  @Prop({ type: Date, default: null })
+  completed_at: Date | null;
 
   created_at: Date;
   updated_at: Date;
@@ -69,3 +72,6 @@ export const PaymentSchema = SchemaFactory.createForClass(Payment);
 
 PaymentSchema.index({ order_id: 1, created_at: -1 });
 PaymentSchema.index({ idempotency_key: 1 }, { unique: true });
+PaymentSchema.index({ order_id: 1, payment_method: 1, created_at: -1 });
+PaymentSchema.index({ user_id: 1, created_at: -1 });
+PaymentSchema.index({ status: 1, created_at: -1 });

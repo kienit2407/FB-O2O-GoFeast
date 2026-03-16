@@ -11,7 +11,7 @@ class AppTheme {
     appBarTheme: AppBarTheme(
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
       ),
     ),
   );

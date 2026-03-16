@@ -1,16 +1,26 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnsupportedMediaTypeException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { CustomerProfile, CustomerProfileDocument } from '../schemas';
 import { Model, Types } from 'mongoose';
 import { GeoService } from 'src/modules/geo/services/geo.service';
 import { CreateSavedAddressDto, UpdateSavedAddressDto } from '../dtos/customer-addres.dto';
 import { UpdateCurrentLocationDto } from '../dtos/update-current-location.dto';
+import { Order, OrderDocument, OrderStatus } from 'src/modules/orders/schemas';
+import { UsersService } from 'src/modules/users/services/users.service';
+import { CloudinaryService } from 'src/common/services/cloudinary.service';
+import { UpdateCustomerUserInfoDto } from '../dtos/update-customer-user-info.dto';
 
 @Injectable()
 export class CustomerProfilesService {
     constructor(
         @InjectModel(CustomerProfile.name) private model: Model<CustomerProfileDocument>,
+        @InjectModel(Order.name)
+        private readonly orderModel: Model<OrderDocument>,
+
         private readonly geo: GeoService,
+        private readonly users: UsersService,
+        private readonly cloudinary: CloudinaryService,
+
     ) { }
 
     private uid(userId: string) {
@@ -76,6 +86,172 @@ export class CustomerProfilesService {
                 { new: true, upsert: true },
             )
             .lean();
+    }
+    private async getCompletedOrderStats(userId: string) {
+        const uid = this.uid(userId);
+
+        const [row] = await this.orderModel.aggregate([
+            {
+                $match: {
+                    customer_id: uid,
+                    status: OrderStatus.COMPLETED,
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    total_orders: { $sum: 1 },
+                    total_spent: { $sum: '$total_amount' },
+                },
+            },
+        ]);
+
+        return {
+            total_orders: Number(row?.total_orders ?? 0),
+            total_spent: Number(row?.total_spent ?? 0),
+        };
+    }
+    private async buildMyProfilePayload(userId: string) {
+        await this.ensureForUser(userId);
+
+        const [user, profile, stats] = await Promise.all([
+            this.users.findById(userId),
+            this.findByUserId(userId),
+            this.getCompletedOrderStats(userId),
+        ]);
+
+        if (!user) throw new NotFoundException('User not found');
+        if (!profile) throw new NotFoundException('Customer profile not found');
+
+        return {
+            id: String(user._id),
+            email: user.email ?? null,
+            phone: user.phone ?? null,
+            full_name: user.full_name ?? null,
+            status: user.status ?? null,
+            role: user.role ?? null,
+            avatar_url: user.avatar_url ?? null,
+            gender: user.gender ?? null,
+            date_of_birth: user.date_of_birth ?? null,
+            language: user.language ?? 'vi',
+            notification_enabled: user.notification_enabled ?? true,
+            auth_methods: user.auth_methods ?? [],
+            oauth_providers: user.oauth_providers ?? [],
+            customer_profile: {
+                _id: String(profile._id),
+                user_id: String(profile.user_id),
+                total_orders: stats.total_orders,
+                total_spent: stats.total_spent,
+                saved_addresses: profile.saved_addresses ?? [],
+                current_location: profile.current_location ?? null,
+                created_at: profile.created_at ?? null,
+                updated_at: profile.updated_at ?? null,
+            },
+        };
+    }
+    async getMyProfile(userId: string) {
+        return this.buildMyProfilePayload(userId);
+    }
+
+    async updateMyUserInfo(userId: string, dto: UpdateCustomerUserInfoDto) {
+        const user = await this.users.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const patch: Record<string, any> = {};
+
+        if (dto.full_name !== undefined) {
+            const nextName = dto.full_name?.trim() ?? '';
+            if (!nextName) {
+                throw new BadRequestException('full_name is required');
+            }
+            patch.full_name = nextName;
+        }
+
+        if (dto.phone !== undefined) {
+            const nextPhone = dto.phone?.trim() ?? null;
+
+            if (nextPhone) {
+                const existed = await this.users.findByPhone(nextPhone);
+                if (existed && String(existed._id) !== String(user._id)) {
+                    throw new BadRequestException('Phone already exists');
+                }
+            }
+
+            patch.phone = nextPhone;
+        }
+
+        if (dto.gender !== undefined) {
+            patch.gender = dto.gender ?? null;
+        }
+
+        if (dto.date_of_birth !== undefined) {
+            patch.date_of_birth = dto.date_of_birth
+                ? new Date(dto.date_of_birth)
+                : null;
+        }
+
+        if (!Object.keys(patch).length) {
+            return this.buildMyProfilePayload(userId);
+        }
+
+        await this.users.update(userId, patch);
+        return this.buildMyProfilePayload(userId);
+    }
+
+    async uploadMyAvatar(userId: string, file: Express.Multer.File) {
+        const user = await this.users.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        if (!file) throw new BadRequestException('Missing file');
+        if (!file.mimetype?.startsWith('image/')) {
+            throw new UnsupportedMediaTypeException('File must be an image');
+        }
+
+        const uploaded = await this.cloudinary.uploadImage(
+            file,
+            `customers/${userId}/avatar`,
+        );
+
+        if (!uploaded?.url || !uploaded?.public_id) {
+            throw new BadRequestException('Upload avatar failed');
+        }
+
+        const oldPublicId = (user as any).avatar_public_id ?? null;
+        if (oldPublicId) {
+            try {
+                await this.cloudinary.deleteImage(oldPublicId);
+            } catch (_) {
+                // không chặn flow nếu xóa ảnh cũ lỗi
+            }
+        }
+
+        await this.users.update(userId, {
+            avatar_url: uploaded.url,
+            avatar_public_id: uploaded.public_id,
+        });
+
+        return this.buildMyProfilePayload(userId);
+    }
+
+    async removeMyAvatar(userId: string) {
+        const user = await this.users.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const oldPublicId = (user as any).avatar_public_id ?? null;
+        if (oldPublicId) {
+            try {
+                await this.cloudinary.deleteImage(oldPublicId);
+            } catch (_) {
+                // không chặn flow nếu xóa ảnh cũ lỗi
+            }
+        }
+
+        await this.users.update(userId, {
+            avatar_url: null!,
+            avatar_public_id: null,
+        });
+
+        return this.buildMyProfilePayload(userId);
     }
 
     //  chọn 1 địa chỉ đã lưu -> copy snapshot sang current_location

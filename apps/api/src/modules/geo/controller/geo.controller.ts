@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { GeoService } from '../services/geo.service';
 
 @Controller('geo')
@@ -16,6 +16,34 @@ export class GeoController {
             lng: lng ? Number(lng) : undefined,
             size: size ? Number(size) : undefined,
         });
+    }
+    @Get('route')
+    async route(
+        @Query('originLat') originLat: string,
+        @Query('originLng') originLng: string,
+        @Query('destinationLat') destinationLat: string,
+        @Query('destinationLng') destinationLng: string,
+        @Query('mode') mode?: 'driving' | 'motorcycling' | 'walking' | 'truck',
+    ) {
+        const oLat = Number(originLat);
+        const oLng = Number(originLng);
+        const dLat = Number(destinationLat);
+        const dLng = Number(destinationLng);
+
+        if (
+            [oLat, oLng, dLat, dLng].some((x) => Number.isNaN(x))
+        ) {
+            throw new BadRequestException('Invalid route coordinates');
+        }
+
+        const data = await this.geo.getEtaDirections({
+            origin: { lat: oLat, lng: oLng },
+            destination: { lat: dLat, lng: dLng },
+            mode: mode ?? 'motorcycling',
+            new_admin: true,
+        });
+
+        return { success: true, data };
     }
     @Get('reverse')
     reverse(

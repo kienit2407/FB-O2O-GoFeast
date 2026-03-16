@@ -1,6 +1,8 @@
 import 'package:customer/core/services/location_service.dart';
 import 'package:customer/features/addresses/data/models/saved_address_models.dart';
 import 'package:customer/features/addresses/data/repository/address_repository.dart';
+import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
+import 'package:customer/features/orders/presentation/pages/checkout_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'address_state.dart';
 
@@ -20,18 +22,18 @@ class AddressController extends StateNotifier<AddressState> {
   final LocationService _loc;
   final Future<bool> Function() _isLoggedIn;
 
-  // ✅ RAM cache theo session (kill app là mất)
+  //  RAM cache theo session (kill app là mất)
   static CurrentLocation? _sessionCurrent;
 
   Future<void> load({bool force = false}) async {
-    // ✅ 1) Nếu đã có current trong state và không force -> không gọi GPS nữa
+    //  1) Nếu đã có current trong state và không force -> không gọi GPS nữa
     if (!force && state.current != null) {
       state = state.copyWith(isFetching: false, didLoad: true, error: null);
       await _syncSavedOnly();
       return;
     }
 
-    // ✅ 2) Nếu state chưa có nhưng RAM cache có -> dùng cache
+    //  2) Nếu state chưa có nhưng RAM cache có -> dùng cache
     if (!force && _sessionCurrent != null) {
       state = state.copyWith(
         isFetching: false,
@@ -43,7 +45,7 @@ class AddressController extends StateNotifier<AddressState> {
       return;
     }
 
-    // ✅ 3) Chỉ tới đây mới thật sự gọi GPS/reverse
+    //  3) Chỉ tới đây mới thật sự gọi GPS/reverse
     state = state.copyWith(isFetching: true, error: null);
 
     try {
@@ -58,7 +60,7 @@ class AddressController extends StateNotifier<AddressState> {
         address: addr,
       );
 
-      // ✅ lưu RAM cache
+      //  lưu RAM cache
       _sessionCurrent = current;
 
       // update location lên BE nếu login (giữ như bạn)
@@ -89,7 +91,20 @@ class AddressController extends StateNotifier<AddressState> {
     }
   }
 
-  // ✅ chỉ sync saved, không đụng GPS
+  Future<void> setCurrentFromCheckoutDraft(CheckoutDeliveryDraft draft) async {
+    state = state.copyWith(
+      current: CurrentLocation(
+        address: draft.address,
+        lat: draft.lat,
+        lng: draft.lng,
+        receiverName: draft.receiverName,
+        receiverPhone: draft.receiverPhone,
+        deliveryNote: draft.addressNote,
+      ),
+    );
+  }
+
+  //  chỉ sync saved, không đụng GPS
   Future<void> _syncSavedOnly() async {
     final loggedIn = await _isLoggedIn();
     if (!loggedIn) {
@@ -109,7 +124,6 @@ class AddressController extends StateNotifier<AddressState> {
       state = state.copyWith(saved: saved);
     } catch (_) {}
   }
-
 
   Future<void> createSaved({
     required String address,
@@ -132,7 +146,8 @@ class AddressController extends StateNotifier<AddressState> {
 
     await reloadSaved();
   }
-Future<void> useSavedAsCurrent(SavedAddress a) async {
+
+  Future<void> useSavedAsCurrent(SavedAddress a) async {
     if (!await _isLoggedIn()) return;
 
     await _repo.useSavedAsCurrent(a.id);
@@ -143,10 +158,11 @@ Future<void> useSavedAsCurrent(SavedAddress a) async {
       address: a.address,
     );
 
-    // ✅ update state + RAM cache
+    //  update state + RAM cache
     _sessionCurrent = cur;
     state = state.copyWith(current: cur);
   }
+
   Future<void> updateSaved(
     String id, {
     String? address,

@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
     IsBoolean,
     IsDateString,
@@ -10,7 +10,6 @@ import {
 } from 'class-validator';
 
 export class UpdateMerchantVoucherDto {
-    // nếu bạn muốn KHÔNG cho đổi promotion_id thì xoá field này
     @IsOptional()
     @IsMongoId()
     promotion_id?: string;
@@ -20,11 +19,13 @@ export class UpdateMerchantVoucherDto {
     @Transform(({ value }) => String(value ?? '').trim().toUpperCase())
     code?: string;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)
     total_usage_limit?: number;
 
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     @Min(0)

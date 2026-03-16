@@ -22,6 +22,9 @@ export class Product {
   @Prop({ required: true })
   name: string;
 
+  @Prop({ type: String, default: null, index: true })
+  name_search: string | null;
+  
   @Prop({ default: '' })
   description: string;
 
@@ -61,7 +64,7 @@ export class Product {
 
   @Prop({ default: 0 })
   total_reviews: number;
-  
+
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Topping' }], default: [] })
   topping_ids: Types.ObjectId[];
 
@@ -78,3 +81,4 @@ ProductSchema.index({ merchant_id: 1, is_active: 1 });
 ProductSchema.index({ category_id: 1, is_active: 1 });
 ProductSchema.index({ topping_ids: 1 });
 ProductSchema.index({ 'images.public_id': 1 });
+ProductSchema.index({ name_search: 1, merchant_id: 1, is_active: 1, deleted_at: 1 });

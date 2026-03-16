@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
+import 'package:customer/core/utils/checkout_delivery_draft_mapper.dart';
+import 'package:customer/core/utils/checkout_error_ui.dart';
 import 'package:customer/core/utils/formatters.dart';
 import 'package:customer/core/utils/map_category.dart';
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
@@ -9,10 +11,16 @@ import 'package:customer/features/cart/data/repositories/cart_repository.dart';
 import 'package:customer/features/cart/presentation/viewmodels/cart_controller.dart';
 import 'package:customer/features/cart/presentation/viewmodels/cart_state.dart';
 import 'package:customer/features/cart/presentation/widgets/cart_bottom_sheet.dart';
+import 'package:customer/features/dinein/data/models/dine_in_models.dart';
 import 'package:customer/features/merchant/data/models/product_config_model.dart';
 import 'package:customer/features/merchant/presentation/viewmodels/search_item.dart';
 import 'package:customer/features/merchant/presentation/widgets/merchant_detail_skeleton.dart';
+import 'package:customer/features/merchant/presentation/widgets/merchant_reviews_bottom_sheet.dart';
 import 'package:customer/features/merchant/presentation/widgets/product_option_bottom_sheet.dart';
+import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
+import 'package:customer/features/orders/data/models/checkout_models.dart';
+import 'package:customer/features/orders/presentation/pages/checkout_page.dart';
+import 'package:customer/features/promotion/data/models/promotion_models.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,17 +44,31 @@ String money(num v) {
   return '${s.replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}đ';
 }
 
+enum MerchantViewMode { delivery, dineIn }
+
 class MerchantDetailPage extends ConsumerStatefulWidget {
-  const MerchantDetailPage({
+  const MerchantDetailPage.delivery({
     super.key,
     required this.merchantId,
     required this.lat,
     required this.lng,
-  });
+  }) : mode = MerchantViewMode.delivery,
+       dineInContext = null;
+
+  const MerchantDetailPage.dineIn({
+    super.key,
+    required this.merchantId,
+    required this.dineInContext,
+  }) : mode = MerchantViewMode.dineIn,
+       lat = 0,
+       lng = 0;
 
   final String merchantId;
   final double lat;
   final double lng;
+
+  final MerchantViewMode mode;
+  final DineInContext? dineInContext;
 
   @override
   ConsumerState<MerchantDetailPage> createState() => _MerchantDetailPageState();
@@ -61,15 +83,15 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
   final ScrollController _scrollCtrl = ScrollController();
 
   final List<GlobalKey> _sectionHeaderKeys = [];
-
+  bool _openingCheckout = false;
   Timer? _tabSyncDebounce;
   bool _syncingFromTab = false;
   Timer? _syncTimer;
 
   MerchantDetailParams get _params => MerchantDetailParams(
     merchantId: widget.merchantId,
-    lat: widget.lat,
-    lng: widget.lng,
+    lat: widget.mode == MerchantViewMode.delivery ? widget.lat : 0,
+    lng: widget.mode == MerchantViewMode.delivery ? widget.lng : 0,
   );
 
   @override
@@ -88,8 +110,15 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     super.dispose();
   }
 
-  CartParams get _cartParams =>
-      CartParams.delivery(merchantId: widget.merchantId);
+  CartParams get _cartParams {
+    if (widget.mode == MerchantViewMode.dineIn) {
+      return CartParams.dineIn(
+        tableSessionId: widget.dineInContext!.tableSessionId,
+      );
+    }
+
+    return CartParams.delivery(merchantId: widget.merchantId);
+  }
 
   CartController get _cartCtrl => ref.read(cartProvider(_cartParams).notifier);
 
@@ -197,10 +226,163 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     );
   }
 
-  Future<void> _onAddPressed(MerchantDetailProductItem p) async {
-    //  nếu chưa login -> mở signin và dừng
-    if (!await _ensureLoggedIn()) return;
+  void _openMerchantReviewsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return MerchantReviewsBottomSheet(
+          merchantId: widget.merchantId,
+          onChanged: () async {
+            await ref.read(merchantDetailProvider(_params).notifier).retry();
+          },
+        );
+      },
+    );
+  }
 
+  Future<void> _goToCheckout() async {
+    if (_openingCheckout) return;
+
+    setState(() => _openingCheckout = true);
+
+    try {
+      final repo = ref.read(checkoutRepositoryProvider);
+
+      if (widget.mode == MerchantViewMode.dineIn) {
+        final tableSessionId = widget.dineInContext!.tableSessionId;
+
+        await repo.previewDineIn(
+          tableSessionId: tableSessionId,
+          paymentMethod: CheckoutPaymentMethod.cash,
+          voucherCode: null,
+        );
+
+        if (!mounted) return;
+
+        await context.push(
+          '/checkout/dine-in',
+          extra: {
+            'tableSessionId': tableSessionId,
+            'dineInContext': widget.dineInContext,
+          },
+        );
+
+        if (!mounted) return;
+        await _cartCtrl.loadSummary(silent: true);
+        return;
+      }
+
+      if (!await _ensureLoggedIn()) return;
+      if (!mounted) return;
+
+      final user = ref.read(authViewModelProvider).valueOrNull;
+      final draft =
+          checkoutDraftFromAuth(user) ??
+          const CheckoutDeliveryDraft(
+            lat: 0,
+            lng: 0,
+            address: '',
+            receiverName: '',
+            receiverPhone: '',
+            addressNote: '',
+          );
+
+      if (draft.address.trim().isEmpty || draft.lat == 0 || draft.lng == 0) {
+        await showCheckoutErrorDialog(
+          context,
+          message:
+              'Bạn chưa có địa chỉ giao hàng hợp lệ. Vui lòng cập nhật địa chỉ trước.',
+        );
+        return;
+      }
+
+      await repo.previewDelivery(
+        merchantId: widget.merchantId,
+        lat: draft.lat,
+        lng: draft.lng,
+        address: draft.address,
+        receiverName: draft.receiverName,
+        receiverPhone: draft.receiverPhone,
+        addressNote: draft.addressNote,
+        paymentMethod: CheckoutPaymentMethod.cash,
+        voucherCode: null,
+      );
+
+      if (!mounted) return;
+
+      await context.push(
+        '/checkout/delivery',
+        extra: {'merchantId': widget.merchantId, 'draft': draft},
+      );
+
+      if (!mounted) return;
+      await _cartCtrl.loadSummary(silent: true);
+    } catch (e) {
+      if (!mounted) return;
+      await showCheckoutErrorDialog(
+        context,
+        message: mapCheckoutErrorMessage(e),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingCheckout = false);
+      }
+    }
+  }
+
+  Future<void> _leaveTable() async {
+    if (widget.mode != MerchantViewMode.dineIn) return;
+
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: const Text('Rời bàn'),
+        content: const Text(
+          'Bạn có chắc muốn rời khỏi bàn hiện tại không? Ngữ cảnh dine-in trên thiết bị này sẽ được xoá.',
+        ),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(
+              'Ở lại',
+              style: TextStyle(color: CupertinoColors.activeBlue),
+            ),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Rời bàn',
+              style: TextStyle(color: CupertinoColors.destructiveRed),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true || !mounted) return;
+
+    try {
+      ref.invalidate(cartProvider(_cartParams));
+      await ref.read(dineInSessionProvider.notifier).clearContext();
+
+      if (!mounted) return;
+      context.go('/');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(mapCheckoutErrorMessage(e))));
+    }
+  }
+
+  Future<void> _onAddPressed(MerchantDetailProductItem p) async {
+    if (widget.mode == MerchantViewMode.delivery && !await _ensureLoggedIn()) {
+      return;
+    }
     if (!p.hasOptions) {
       await _cartCtrl.addProduct(
         productId: p.id,
@@ -268,7 +450,9 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
   }
 
   Future<void> _onAddToppingStandalone(MerchantDetailToppingItem t) async {
-    if (!await _ensureLoggedIn()) return;
+    if (widget.mode == MerchantViewMode.delivery && !await _ensureLoggedIn()) {
+      return;
+    }
 
     await _cartCtrl.addToppingStandalone(toppingId: t.id, quantity: 1);
 
@@ -320,8 +504,13 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     return true;
   }
 
-  void _showBenefitsSheet(BuildContext context, MerchantDetailResponse d) {
-    final entries = _buildBenefitEntries(d);
+  void _showBenefitsSheet(
+    BuildContext context,
+    List<MerchantPromotionSummaryItem> promotions,
+  ) {
+    if (promotions.isEmpty) return;
+
+    final entries = _buildBenefitEntries(promotions);
 
     showModalBottomSheet(
       context: context,
@@ -350,8 +539,6 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                     ),
                   ),
                   const SizedBox(height: 8),
-
-                  // Header giống ảnh: title giữa
                   Row(
                     children: [
                       IconButton(
@@ -361,7 +548,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                       ),
                       const Expanded(
                         child: Text(
-                          'Dành cho bạn',
+                          'Ưu đãi của quán',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 18,
@@ -369,18 +556,23 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                           ),
                         ),
                       ),
-                      const SizedBox(width: 48), // giữ cân giữa
+                      const SizedBox(width: 48),
                     ],
                   ),
                   const Divider(height: 1),
-
                   Expanded(
                     child: ListView.separated(
                       controller: scrollCtrl,
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                       itemCount: entries.length,
                       separatorBuilder: (_, __) => const Divider(height: 24),
-                      itemBuilder: (_, i) => _BenefitTile(entry: entries[i]),
+                      itemBuilder: (_, i) => _BenefitTile(
+                        entry: entries[i],
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.push('/promotion/${entries[i].item.id}');
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -573,17 +765,40 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     final st = ref.watch(merchantDetailProvider(_params));
     final ctrl = ref.read(merchantDetailProvider(_params).notifier);
 
-    //  watch cart summary (trigger auto loadSummary trong CartController)
-    final cartParams = CartParams.delivery(merchantId: widget.merchantId);
+    final cartParams = _cartParams;
 
     final d = st.data;
+    final promoOrderType = widget.mode == MerchantViewMode.dineIn
+        ? 'dine_in'
+        : 'delivery';
+
+    final promoAsync = ref.watch(
+      merchantPromotionSummariesProvider(
+        MerchantPromotionListParams(
+          merchantId: widget.merchantId,
+          orderType: promoOrderType,
+        ),
+      ),
+    );
+
+    final promoItems =
+        promoAsync.valueOrNull ?? const <MerchantPromotionSummaryItem>[];
     if (d != null &&
         (_tabCtrl == null || _tabCtrl!.length != d.sections.length)) {
       _rebuildForData(d);
     }
 
     return Scaffold(
-      bottomNavigationBar: _MerchantCartBar(params: cartParams),
+      bottomNavigationBar: _MerchantCartBar(
+        params: cartParams,
+        mode: widget.mode,
+        dineInContext: widget.dineInContext,
+        onCheckout: _goToCheckout,
+        onLeaveTable: widget.mode == MerchantViewMode.dineIn
+            ? _leaveTable
+            : null,
+        loading: _openingCheckout,
+      ),
       backgroundColor: Colors.white,
       body: st.isLoading && d == null
           ? const MerchantDetailSkeleton()
@@ -592,7 +807,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
               message: st.error ?? 'Không tải được dữ liệu',
               onRetry: ctrl.retry,
             )
-          : _buildBody(context, d, ctrl),
+          : _buildBody(context, d, ctrl, promoItems, promoAsync.isLoading),
     );
   }
 
@@ -600,6 +815,8 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     BuildContext context,
     MerchantDetailResponse d,
     MerchantDetailController ctrl,
+    List<MerchantPromotionSummaryItem> promoItems,
+    bool promoLoading,
   ) {
     final tabCtrl = _tabCtrl!;
     final merchant = d.merchant;
@@ -622,9 +839,18 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
               d.business.now,
               merchant,
               isFavorited: d.viewer.isFavorited,
+              onOpenReviews: _openMerchantReviewsSheet,
             ),
           ),
-          SliverToBoxAdapter(child: _buildDeliveryAndPromos(d)),
+          SliverToBoxAdapter(
+            child: MerchantReviewsPreviewSection(
+              merchantId: widget.merchantId,
+              onSeeMore: _openMerchantReviewsSheet,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: _buildDeliveryAndPromos(d, promoItems, promoLoading),
+          ),
           SliverToBoxAdapter(child: _buildPopular(d.popular)),
 
           SliverPersistentHeader(
@@ -671,6 +897,30 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                 }
                 return _MenuItemRow(
                   item: e.item!,
+                  onOpenDetail: (it) {
+                    if (it is MerchantDetailProductItem) {
+                      if (widget.mode == MerchantViewMode.dineIn &&
+                          widget.dineInContext != null) {
+                        context.push(
+                          '/product/${it.id}',
+                          extra: {
+                            'mode': 'dine_in',
+                            'dineInContext': widget.dineInContext,
+                            'merchantId': widget.merchantId,
+                          },
+                        );
+                      } else {
+                        context.push(
+                          '/product/${it.id}',
+                          extra: {
+                            'lat': widget.lat,
+                            'lng': widget.lng,
+                            'merchantId': widget.merchantId,
+                          },
+                        );
+                      }
+                    }
+                  },
                   onAdd: (it) {
                     if (it is MerchantDetailProductItem) {
                       unawaited(_onAddPressed(it));
@@ -894,6 +1144,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
 
     MerchantDetailMerchant m, {
     required bool isFavorited,
+    required VoidCallback onOpenReviews,
   }) {
     final ratingText = m.rating.toDouble().toStringAsFixed(1);
     final reviewsInt = m.reviews.toInt();
@@ -920,6 +1171,44 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
+          if (widget.mode == MerchantViewMode.dineIn &&
+              widget.dineInContext != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF1EE),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Ăn tại quán • Bàn ${widget.dineInContext!.tableNumber}',
+                    style: const TextStyle(
+                      color: AppColor.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: _leaveTable,
+                  child: const Text(
+                    'Rời bàn',
+                    style: TextStyle(
+                      color: AppColor.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
           Row(
             children: [
               const Icon(Icons.star, size: 18, color: Colors.amber),
@@ -929,11 +1218,21 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
               const SizedBox(width: 8),
-              Text(
-                '(${reviewsInt}+ Bình luận)',
-                style: const TextStyle(
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w600,
+              InkWell(
+                onTap: onOpenReviews,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 2,
+                  ),
+                  child: Text(
+                    '(${reviewsInt}+ Bình luận)',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1023,10 +1322,18 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     return null;
   }
 
-  Widget _buildDeliveryAndPromos(MerchantDetailResponse d) {
+  Widget _buildDeliveryAndPromos(
+    MerchantDetailResponse d,
+    List<MerchantPromotionSummaryItem> promotions,
+    bool promotionsLoading,
+  ) {
     final etaAt = DateTime.now().add(Duration(minutes: d.merchant.etaMin));
-    final etaText = 'Dự kiến giao lúc ${hhmm(etaAt)}';
-    final entries = _buildBenefitEntries(d);
+    final etaText = widget.mode == MerchantViewMode.dineIn
+        ? 'Phục vụ tại bàn • ${d.business.now.isOpen ? 'Đang mở' : 'Đang đóng'}'
+        : 'Dự kiến giao lúc ${hhmm(etaAt)}';
+
+    final entries = _buildBenefitEntries(promotions);
+    final previewEntries = entries.take(2).toList();
 
     return Container(
       color: Colors.white,
@@ -1104,7 +1411,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                   children: [
                     Text(
                       d.merchant.name,
-                      style: TextStyle(fontWeight: FontWeight.w500),
+                      style: const TextStyle(fontWeight: FontWeight.w500),
                     ),
                     Text(
                       etaText,
@@ -1118,7 +1425,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
               ),
               TextButton(
                 onPressed: () => _showMerchantInfoSheet(context, d),
-                child: Text(
+                child: const Text(
                   'Thông tin',
                   style: TextStyle(
                     color: AppColor.primary,
@@ -1129,26 +1436,36 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
               ),
             ],
           ),
-          if (entries.isNotEmpty) ...[
+          if (promotionsLoading) ...[
             const SizedBox(height: 10),
-
-            // preview tối đa 2 dòng
-            for (int i = 0; i < (entries.length >= 2 ? 2 : 1); i++) ...[
+            const LinearProgressIndicator(
+              minHeight: 2,
+              color: AppColor.primary,
+            ),
+          ],
+          if (previewEntries.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (int i = 0; i < previewEntries.length; i++) ...[
               InkWell(
-                onTap: () => _showBenefitsSheet(context, d),
+                onTap: () => _showBenefitsSheet(context, promotions),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.local_shipping,
-                        color: Color(0xFF10B981),
+                      Icon(
+                        previewEntries[i].item.activationType == 'voucher'
+                            ? Icons.confirmation_number_outlined
+                            : Icons.local_offer_outlined,
+                        color:
+                            previewEntries[i].item.activationType == 'voucher'
+                            ? AppColor.primary
+                            : const Color(0xFF10B981),
                         size: 18,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          entries[i].title,
+                          previewEntries[i].title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -1158,9 +1475,27 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                           ),
                         ),
                       ),
-
-                      // nếu nhiều hơn 2 dòng: chỉ dòng thứ 2 mới hiện "Xem thêm"
-                      if (entries.length > 2 && i == 1) ...[
+                      if (previewEntries[i].item.userState.isUserLimitReached)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF1EE),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'Đã dùng',
+                            style: TextStyle(
+                              color: AppColor.primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      if (promotions.length > 2 &&
+                          i == previewEntries.length - 1) ...[
                         const SizedBox(width: 8),
                         Text(
                           'Xem thêm',
@@ -1214,6 +1549,16 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
               separatorBuilder: (_, __) => const SizedBox(width: 12),
               itemBuilder: (_, i) => _PopularCard(
                 item: popular[i],
+                onOpenDetail: () {
+                  context.push(
+                    '/product/${popular[i].id}',
+                    extra: {
+                      'lat': widget.lat,
+                      'lng': widget.lng,
+                      'merchantId': widget.merchantId, // ✅ thêm dòng này
+                    },
+                  );
+                },
                 onAdd: (it) {
                   if (it is MerchantDetailProductItem) {
                     _onAddPressed(it); //  truyền đúng product
@@ -1231,10 +1576,21 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
 }
 
 class _MerchantCartBar extends ConsumerWidget {
-  const _MerchantCartBar({required this.params});
+  const _MerchantCartBar({
+    required this.params,
+    required this.mode,
+    required this.onCheckout,
+    required this.loading,
+    this.dineInContext,
+    this.onLeaveTable,
+  });
 
   final CartParams params;
-
+  final MerchantViewMode mode;
+  final DineInContext? dineInContext;
+  final Future<void> Function() onCheckout;
+  final Future<void> Function()? onLeaveTable;
+  final bool loading;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final st = ref.watch(cartProvider(params));
@@ -1262,7 +1618,17 @@ class _MerchantCartBar extends ConsumerWidget {
           //  nếu CartBottomSheet của bạn nhận merchantId:
           return Padding(
             padding: EdgeInsets.only(bottom: bottomGap),
-            child: CartBottomSheet(merchantId: params.merchantId),
+            child: CartBottomSheet(
+              params: params,
+              title: mode == MerchantViewMode.dineIn
+                  ? 'Giỏ hàng tại bàn'
+                  : 'Giỏ hàng',
+              dineInLabel:
+                  mode == MerchantViewMode.dineIn && dineInContext != null
+                  ? 'Bàn ${dineInContext!.tableNumber}'
+                  : null,
+              onLeaveTable: onLeaveTable,
+            ),
           );
         },
       );
@@ -1272,7 +1638,7 @@ class _MerchantCartBar extends ConsumerWidget {
       color: Colors.white,
       elevation: 10,
       child: InkWell(
-        onTap: openCartSheet,
+        onTap: loading ? null : openCartSheet,
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1326,32 +1692,40 @@ class _MerchantCartBar extends ConsumerWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // price block
                   Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end, //  canh phải
                     children: [
-                      if (hasDiscount)
+                      if (mode == MerchantViewMode.dineIn &&
+                          dineInContext != null)
                         Text(
-                          money(s.originalEstimated),
+                          'Bàn ${dineInContext!.tableNumber}',
                           style: const TextStyle(
-                            color: Colors.black38,
-                            decoration: TextDecoration.lineThrough,
-                            fontWeight: FontWeight.w400,
-                            fontSize: 12,
+                            fontSize: 11,
+                            color: Color(0xFF7A7A7A),
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       Text(
+                        mode == MerchantViewMode.dineIn
+                            ? 'Tạm tính'
+                            : 'Tổng thanh toán',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF7A7A7A),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
                         money(s.totalEstimated),
                         style: const TextStyle(
-                          color: AppColor.primary,
-                          fontWeight: FontWeight.w600,
                           fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppColor.primary,
                         ),
                       ),
                     ],
                   ),
-
                   const SizedBox(width: 12),
 
                   SizedBox(
@@ -1365,14 +1739,29 @@ class _MerchantCartBar extends ConsumerWidget {
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 18),
                       ),
-                      onPressed: () {},
-                      child: const Text(
-                        'Giao hàng', // hoặc 'Giao hàng'
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
+                      onPressed: loading
+                          ? null
+                          : () async {
+                              await onCheckout();
+                            },
+                      child: loading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              mode == MerchantViewMode.dineIn
+                                  ? 'Gọi món'
+                                  : 'Giao hàng',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -1402,10 +1791,14 @@ class _MenuEntry {
 }
 
 class _BenefitTile extends StatelessWidget {
-  const _BenefitTile({required this.entry});
-  final _BenefitEntry entry;
+  const _BenefitTile({required this.entry, required this.onTap});
 
-  String _fmtDate(DateTime? d) {
+  final _BenefitEntry entry;
+  final VoidCallback onTap;
+
+  String _fmtDate(String? iso) {
+    if (iso == null || iso.trim().isEmpty) return '';
+    final d = DateTime.tryParse(iso)?.toLocal();
     if (d == null) return '';
     final dd = d.day.toString().padLeft(2, '0');
     final mm = d.month.toString().padLeft(2, '0');
@@ -1415,90 +1808,150 @@ class _BenefitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = entry.title;
+    final item = entry.item;
+    final from = _fmtDate(item.validFrom);
+    final to = _fmtDate(item.validTo);
 
-    // details (basic, vì voucher schema bạn chưa chốt full)
-    String? redLine;
-    String? minLine;
-    String? timeLine;
-
-    if (entry.promo != null) {
-      final p = entry.promo!;
-      redLine = (p.type == 'percentage')
-          ? 'Giảm giá: ${p.discountValue.toStringAsFixed(0)}% – Tự động áp dụng'
-          : 'Giảm giá: ${money(p.discountValue)} – Tự động áp dụng';
-
-      if (p.minOrderAmount > 0)
-        minLine = 'Đặt tối thiểu: ${money(p.minOrderAmount)}';
-
-      final from = _fmtDate(p.validFrom);
-      final to = _fmtDate(p.validTo);
-      if (from.isNotEmpty || to.isNotEmpty) {
-        timeLine = 'Thời gian áp dụng: $from - $to';
-      }
-    } else {
-      final v = entry.voucher!;
-      if ((v.discountValue ?? 0) > 0) {
-        redLine = (v.code ?? '').isNotEmpty
-            ? 'Giảm giá: ${money(v.discountValue!)} – Mã: ${v.code}'
-            : 'Giảm giá: ${money(v.discountValue!)}';
-      }
-      if ((v.minOrderAmount ?? 0) > 0)
-        minLine = 'Đặt tối thiểu: ${money(v.minOrderAmount!)}';
-
-      final from = _fmtDate(v.validFrom);
-      final to = _fmtDate(v.validTo);
-      if (from.isNotEmpty || to.isNotEmpty) {
-        timeLine = 'Thời gian áp dụng: $from - $to';
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(
-              Icons.local_shipping,
-              color: Color(0xFF10B981),
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
+            Row(
+              children: [
+                Icon(
+                  item.activationType == 'voucher'
+                      ? Icons.confirmation_number_outlined
+                      : Icons.local_offer_outlined,
+                  color: item.activationType == 'voucher'
+                      ? AppColor.primary
+                      : const Color(0xFF10B981),
+                  size: 20,
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    entry.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Colors.black38),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (item.description.trim().isNotEmpty)
+              Text(
+                item.description.trim(),
+                style: const TextStyle(color: Colors.black54, height: 1.35),
               ),
+            if (item.minOrderAmount > 0) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Đơn tối thiểu: ${money(item.minOrderAmount)}',
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ],
+            if (from.isNotEmpty || to.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Thời gian áp dụng: $from - $to',
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F5F5),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    item.sponsor == 'merchant'
+                        ? 'Quán tài trợ'
+                        : 'Nền tảng tài trợ',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (item.activationType == 'auto')
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFFAF3),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Tự động áp dụng',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF10B981),
+                      ),
+                    ),
+                  ),
+                if (item.activationType == 'voucher')
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1EE),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      item.firstVoucher?.isSaved == true
+                          ? 'Đã lưu voucher'
+                          : 'Dùng bằng voucher',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColor.primary,
+                      ),
+                    ),
+                  ),
+                if (item.userState.isUserLimitReached)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1EE),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'Đã dùng hết lượt',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColor.primary,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
-        const SizedBox(height: 10),
-
-        if (redLine != null)
-          Text(
-            redLine,
-            style: TextStyle(
-              color: AppColor.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        if (minLine != null) ...[
-          const SizedBox(height: 6),
-          Text(minLine, style: const TextStyle(color: Colors.black54)),
-        ],
-        if (timeLine != null) ...[
-          const SizedBox(height: 6),
-          Text(timeLine, style: const TextStyle(color: Colors.black54)),
-        ],
-        const SizedBox(height: 4),
-        const Text(
-          'Số lượng ưu đãi có hạn',
-          style: TextStyle(color: Colors.black38),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1570,32 +2023,31 @@ class _MenuSectionHeader extends StatelessWidget {
 }
 
 class _BenefitEntry {
-  final AutoPromotion? promo;
-  final VoucherItem? voucher;
+  final MerchantPromotionSummaryItem item;
 
-  const _BenefitEntry.promo(this.promo) : voucher = null;
-  const _BenefitEntry.voucher(this.voucher) : promo = null;
-
-  bool get isPromo => promo != null;
+  const _BenefitEntry(this.item);
 
   String get title {
-    if (promo != null) return promotionText(promo!);
-    final v = voucher!;
-    if ((v.code ?? '').isNotEmpty) {
-      // ví dụ như ShopeeFood: Nhập "CODE": Giảm ...
-      final disc = (v.discountValue == null) ? '' : money(v.discountValue!);
-      return 'Nhập "${v.code}": Giảm $disc';
+    final discountText = item.discountType == 'percentage'
+        ? 'Giảm ${item.discountValue.toStringAsFixed(0)}%'
+        : 'Giảm ${money(item.discountValue)}';
+
+    final maxText = item.maxDiscount > 0
+        ? ' tối đa ${money(item.maxDiscount)}'
+        : '';
+
+    if (item.activationType == 'voucher' && item.firstVoucher != null) {
+      return 'Nhập "${item.firstVoucher!.code}": $discountText$maxText';
     }
-    final disc = (v.discountValue == null) ? '' : money(v.discountValue!);
-    return 'Voucher: Giảm $disc';
+
+    return '$discountText$maxText';
   }
 }
 
-List<_BenefitEntry> _buildBenefitEntries(MerchantDetailResponse d) {
-  return [
-    ...d.benefits.autoPromotions.map((p) => _BenefitEntry.promo(p)),
-    ...d.benefits.vouchers.map((v) => _BenefitEntry.voucher(v)),
-  ];
+List<_BenefitEntry> _buildBenefitEntries(
+  List<MerchantPromotionSummaryItem> items,
+) {
+  return items.map((e) => _BenefitEntry(e)).toList();
 }
 
 class _InfoRow extends StatelessWidget {
@@ -1750,9 +2202,14 @@ class _HoursBlock extends StatelessWidget {
 }
 
 class _MenuItemRow extends StatelessWidget {
-  const _MenuItemRow({required this.item, required this.onAdd});
+  const _MenuItemRow({
+    required this.item,
+    required this.onAdd,
+    required this.onOpenDetail,
+  });
   final MerchantDetailSectionItem item;
   final void Function(MerchantDetailSectionItem item) onAdd;
+  final void Function(MerchantDetailSectionItem item) onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -1774,6 +2231,310 @@ class _MenuItemRow extends StatelessWidget {
               bottom: BorderSide(color: Colors.black.withOpacity(0.08)),
             ),
           ),
+          child: InkWell(
+            onTap: enabled ? () => onOpenDetail(p) : null,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 78,
+                        height: 78,
+                        child: (p.cover == null)
+                            ? Container(color: Colors.black12)
+                            : CachedNetworkImage(
+                                imageUrl: p.cover!,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) =>
+                                    Container(color: Colors.black12),
+                                errorWidget: (_, __, ___) =>
+                                    Container(color: Colors.black12),
+                              ),
+                      ),
+                    ),
+                    if (hasSale && percent > 0)
+                      Positioned(
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Color(0xffF8EA78),
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              bottomRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Text(
+                            '-$percent%',
+                            style: TextStyle(
+                              color: AppColor.primary,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (p.description.trim().isNotEmpty)
+                        Text(
+                          p.description.trim(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                        ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          if (p.sold > 0)
+                            Text(
+                              '${p.sold}+ đã bán',
+                              style: const TextStyle(
+                                color: Colors.black45,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                              ),
+                            ),
+                          if (p.sold > 0 && p.reviews > 0)
+                            const Text(
+                              '  |  ',
+                              style: TextStyle(color: Colors.black26),
+                            ),
+                          if (p.reviews > 0)
+                            Text(
+                              '${p.reviews} đánh giá',
+                              style: const TextStyle(
+                                color: Colors.black45,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                              ),
+                            ),
+                          if (hasSale && percent > 0) ...[
+                            const Text(
+                              '  |  ',
+                              style: TextStyle(color: Colors.black26),
+                            ),
+
+                            Text(
+                              reviews == 0
+                                  ? 'Chưa có đánh giá '
+                                  : '$reviews lượt thích',
+                              style: TextStyle(
+                                color: AppColor.primary,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text(
+                            money(p.price),
+                            style: TextStyle(
+                              color: AppColor.primary,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (hasSale)
+                            Text(
+                              money(p.basePrice!),
+                              style: const TextStyle(
+                                color: Colors.black38,
+                                decoration: TextDecoration.lineThrough,
+                                fontWeight: FontWeight.w400,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                InkWell(
+                  onTap: enabled ? () => onAdd(item) : null,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 25,
+                    height: 25,
+                    decoration: BoxDecoration(
+                      color: enabled ? AppColor.primary : Colors.black12,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white, size: 15),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // TOPPING ITEM
+    final t = item as MerchantDetailToppingItem;
+    final enabled = t.isAvailable;
+    final qtyLabel = (t.maxQuantity <= 1)
+        ? '1 phần/đơn'
+        : 'Tối đa ${t.maxQuantity}/đơn';
+
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            bottom: BorderSide(color: Colors.black.withOpacity(0.08)),
+          ),
+        ),
+
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: CachedNetworkImage(
+                imageUrl: t.image_url!, // Tránh lỗi dùng dấu !
+                width: 78,
+                height: 78,
+                fit: BoxFit.cover,
+                // Dùng placeholder làm background "sạch" hơn
+                placeholder: (_, __) => Container(color: Colors.black12),
+                // Tránh đỏ màn hình nếu URL sai/null
+                errorWidget: (_, __, ___) => Container(
+                  color: Colors.black12,
+                  child: const Icon(Icons.broken_image, color: Colors.grey),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    t.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if ((t.description ?? '').trim().isNotEmpty)
+                    Text(
+                      (t.description ?? '').trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                    qtyLabel,
+                    style: TextStyle(
+                      color: (t.maxQuantity <= 1)
+                          ? AppColor.primary
+                          : Colors.black45,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    money(t.price),
+                    style: TextStyle(
+                      color: AppColor.primary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            InkWell(
+              onTap: enabled ? () => onAdd(item) : null,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 25,
+                height: 25,
+                decoration: BoxDecoration(
+                  color: enabled ? AppColor.primary : Colors.black12,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 15),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PopularCard extends StatelessWidget {
+  const _PopularCard({
+    required this.item,
+    required this.onAdd,
+    required this.onOpenDetail,
+  });
+  final MerchantDetailProductItem item;
+  final void Function(MerchantDetailSectionItem item) onAdd;
+  final VoidCallback onOpenDetail;
+  @override
+  Widget build(BuildContext context) {
+    final hasSale = item.basePrice != null && item.basePrice! > item.price;
+
+    final p = item;
+    final percent = p.discountPercent;
+    final reviews = p.reviews;
+
+    final enabled = p.isAvailable;
+
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.85,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: AppColor.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.black.withOpacity(0.08), width: .5),
+        ),
+        child: InkWell(
+          onTap: enabled ? onOpenDetail : null,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1935,293 +2696,6 @@ class _MenuItemRow extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      );
-    }
-
-    // TOPPING ITEM
-    final t = item as MerchantDetailToppingItem;
-    final enabled = t.isAvailable;
-    final qtyLabel = (t.maxQuantity <= 1)
-        ? '1 phần/đơn'
-        : 'Tối đa ${t.maxQuantity}/đơn';
-
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(
-            bottom: BorderSide(color: Colors.black.withOpacity(0.08)),
-          ),
-        ),
-
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: CachedNetworkImage(
-                imageUrl: t.image_url!, // Tránh lỗi dùng dấu !
-                width: 78,
-                height: 78,
-                fit: BoxFit.cover,
-                // Dùng placeholder làm background "sạch" hơn
-                placeholder: (_, __) => Container(color: Colors.black12),
-                // Tránh đỏ màn hình nếu URL sai/null
-                errorWidget: (_, __, ___) => Container(
-                  color: Colors.black12,
-                  child: const Icon(Icons.broken_image, color: Colors.grey),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    t.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if ((t.description ?? '').trim().isNotEmpty)
-                    Text(
-                      (t.description ?? '').trim(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.black54,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  const SizedBox(height: 6),
-                  Text(
-                    qtyLabel,
-                    style: TextStyle(
-                      color: (t.maxQuantity <= 1)
-                          ? AppColor.primary
-                          : Colors.black45,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    money(t.price),
-                    style: TextStyle(
-                      color: AppColor.primary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: enabled ? () => onAdd(item) : null,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: 25,
-                height: 25,
-                decoration: BoxDecoration(
-                  color: enabled ? AppColor.primary : Colors.black12,
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: const Icon(Icons.add, color: Colors.white, size: 15),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PopularCard extends StatelessWidget {
-  const _PopularCard({required this.item, required this.onAdd});
-  final MerchantDetailProductItem item;
-  final void Function(MerchantDetailSectionItem item) onAdd;
-  @override
-  Widget build(BuildContext context) {
-    final hasSale = item.basePrice != null && item.basePrice! > item.price;
-
-    final p = item;
-    final percent = p.discountPercent;
-    final reviews = p.reviews;
-
-    final enabled = p.isAvailable;
-
-    return Opacity(
-      opacity: enabled ? 1 : 0.45,
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.85,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        decoration: BoxDecoration(
-          color: AppColor.background,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black.withOpacity(0.08), width: .5),  
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: SizedBox(
-                    width: 78,
-                    height: 78,
-                    child: (p.cover == null)
-                        ? Container(color: Colors.black12)
-                        : CachedNetworkImage(
-                            imageUrl: p.cover!,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) =>
-                                Container(color: Colors.black12),
-                            errorWidget: (_, __, ___) =>
-                                Container(color: Colors.black12),
-                          ),
-                  ),
-                ),
-                if (hasSale && percent > 0)
-                  Positioned(
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Color(0xffF8EA78),
-                        borderRadius: BorderRadius.only(
-                          topLeft: Radius.circular(12),
-                          bottomRight: Radius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        '-$percent%',
-                        style: TextStyle(color: AppColor.primary, fontSize: 10),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    p.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (p.description.trim().isNotEmpty)
-                    Text(
-                      p.description.trim(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.black54,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 12,
-                      ),
-                    ),
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      if (p.sold > 0)
-                        Text(
-                          '${p.sold}+ đã bán',
-                          style: const TextStyle(
-                            color: Colors.black45,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 10,
-                          ),
-                        ),
-                      if (p.sold > 0 && p.reviews > 0)
-                        const Text(
-                          '  |  ',
-                          style: TextStyle(color: Colors.black26),
-                        ),
-                      if (p.reviews > 0)
-                        Text(
-                          '${p.reviews} đánh giá',
-                          style: const TextStyle(
-                            color: Colors.black45,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 10,
-                          ),
-                        ),
-                      if (hasSale && percent > 0) ...[
-                        const Text(
-                          '  |  ',
-                          style: TextStyle(color: Colors.black26),
-                        ),
-
-                        Text(
-                          reviews == 0
-                              ? 'Chưa có đánh giá '
-                              : '$reviews lượt thích',
-                          style: TextStyle(
-                            color: AppColor.primary,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        money(p.price),
-                        style: TextStyle(
-                          color: AppColor.primary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (hasSale)
-                        Text(
-                          money(p.basePrice!),
-                          style: const TextStyle(
-                            color: Colors.black38,
-                            decoration: TextDecoration.lineThrough,
-                            fontWeight: FontWeight.w400,
-                            fontSize: 12,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            InkWell(
-              onTap: enabled ? () => onAdd(item) : null,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: 25,
-                height: 25,
-                decoration: BoxDecoration(
-                  color: enabled ? AppColor.primary : Colors.black12,
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: const Icon(Icons.add, color: Colors.white, size: 15),
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -16,6 +16,7 @@ import { BenefitsUsageService } from '../../benefits/services/benefits-usage.ser
 import { GeoService } from 'src/modules/geo/services/geo.service';
 import { Voucher } from 'src/modules/promotions/schemas';
 import { CartService } from 'src/modules/carts/services/cart.service';
+import { DeliveryRouteResolverService } from 'src/modules/geo/services/delivery-route-resolver.service';
 
 type Input = {
     merchantId: string;
@@ -155,7 +156,7 @@ export class MerchantsPublicService {
         @InjectModel(Topping.name) private readonly toppingModel: Model<Topping>,
         @InjectModel(Promotion.name) private readonly promoModel: Model<Promotion>,
 
-        private readonly geo: GeoService,
+        private readonly deliveryRouteResolver: DeliveryRouteResolverService,
         private readonly favorites: MerchantFavoritesService,
         private readonly benefitsUsage: BenefitsUsageService,
         private readonly cartService: CartService,
@@ -361,50 +362,30 @@ export class MerchantsPublicService {
         const m = rows?.[0];
         if (!m) throw new NotFoundException('Merchant not found');
 
-        const prep = Number(m.average_prep_time_min ?? 15);
+        const coords = m.location?.coordinates;
+        if (!Array.isArray(coords) || coords.length !== 2) {
+            throw new BadRequestException('Merchant location is missing');
+        }
+
+        const prepMin = Number(m.average_prep_time_min ?? 15);
         const radiusKm = Number(m.delivery_radius_km ?? 0);
 
-        // mặc định (fallback)
-        const straightKm = Number(m.distance_km ?? 0);
-        let distanceKm = straightKm;
+        const routeMeta = await this.deliveryRouteResolver.resolve({
+            origin: { lat, lng },
+            destination: {
+                lat: Number(coords[1]),
+                lng: Number(coords[0]),
+            },
+            prepMin,
+            radiusKm,
+        });
 
-        let travelMin: number | null = null;
-
-        const coords = m.location?.coordinates;
-        if (Array.isArray(coords) && coords.length === 2) {
-            const dest = { lng: Number(coords[0]), lat: Number(coords[1]) };
-            try {
-                const r = await this.geo.getEtaDirections({
-                    origin: { lat, lng },
-                    destination: dest,
-                    mode: 'motorcycling',
-                    new_admin: true,
-                });
-
-                if (r.ok) {
-                    const routeKm = (Number(r.distance_m ?? 0) || 0) / 1000;
-                    if (routeKm > 0) distanceKm = routeKm;
-
-                    const sec = Number(r.duration_s ?? 0) || 0;
-                    if (sec > 0) travelMin = Math.max(1, Math.ceil(sec / 60));
-                }
-            } catch {
-                // ignore -> fallback
-            }
-        }
-
-        // fallback travelMin theo straight distance
-        if (travelMin == null) {
-            // ~4 phút/km + 8 phút base, min 6
-            travelMin = Math.max(6, Math.ceil(distanceKm * 4 + 8));
-        }
-
-        // buffer nhỏ để “an toàn”
-        const etaMin = prep + travelMin + 2;
-
-        const canDeliver = radiusKm > 0 ? distanceKm <= radiusKm : false;
-
-        return { merchant: m, distanceKm, canDeliver, etaMin };
+        return {
+            merchant: m,
+            distanceKm: routeMeta.distanceKm,
+            canDeliver: routeMeta.canDeliver,
+            etaMin: routeMeta.etaMin,
+        };
     }
 
     //  Promotions trả object + filter per-user

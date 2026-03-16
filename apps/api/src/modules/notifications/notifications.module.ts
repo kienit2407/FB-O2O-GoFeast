@@ -1,25 +1,18 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-import { OrderCreatedConsumer } from './consumers';
+import { MongooseModule } from '@nestjs/mongoose';
+
+import { NotificationsController } from './controllers/notifications.controller';
+import { Notification, NotificationSchema } from './schemas/notification.schema';
+import { NotificationsService } from './services/notifications.service';
 
 @Module({
   imports: [
-    ClientsModule.register([
-      {
-        name: 'KAFKA_SERVICE',
-        transport: Transport.KAFKA,
-        options: {
-          client: {
-            clientId: 'fab-o2o-api-notifications',
-            brokers: [process.env.KAFKA_BROKERS || 'localhost:9092'],
-          },
-          consumer: {
-            groupId: 'fab-o2o-notifications-consumer',
-          },
-        },
-      },
+    MongooseModule.forFeature([
+      { name: Notification.name, schema: NotificationSchema },
     ]),
   ],
-  controllers: [OrderCreatedConsumer],
+  controllers: [NotificationsController],
+  providers: [NotificationsService],
+  exports: [NotificationsService],
 })
-export class NotificationsModule {}
+export class NotificationsModule { }

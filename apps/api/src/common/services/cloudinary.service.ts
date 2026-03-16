@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '../../config/config.service';
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import { v2 as cloudinary, UploadApiOptions, UploadApiResponse } from 'cloudinary';
 import * as fs from 'fs';
-
+import * as streamifier from 'streamifier';
 export interface UploadResult {
   url: string;
   public_id: string;
@@ -21,7 +21,26 @@ export class CloudinaryService {
       api_secret: this.configService.cloudinaryApiSecret,
     });
   }
+  async uploadBuffer(
+    buffer: Buffer,
+    options?: UploadApiOptions,
+  ): Promise<any> {
+    try {
+      return await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          options ?? {},
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          },
+        );
 
+        streamifier.createReadStream(buffer).pipe(stream);
+      });
+    } catch (e) {
+      throw new InternalServerErrorException('Cloudinary upload failed');
+    }
+  }
   private async getFileBuffer(file: Express.Multer.File): Promise<Buffer> {
     // If file has buffer (memory storage), use it directly
     if (file.buffer) {

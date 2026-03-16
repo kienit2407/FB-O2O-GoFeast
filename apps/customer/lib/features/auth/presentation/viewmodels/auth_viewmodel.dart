@@ -70,15 +70,10 @@ class AuthViewModel extends AsyncNotifier<AuthUser?> {
   }
 
   Future<void> refreshMe() async {
-    try {
-      final user = await _repo.fetchMe();
-      // không cần set loading, vì chỉ refresh data
-      state = AsyncData(user);
-    } catch (e, st) {
-      // tuỳ bạn: giữ state cũ hoặc báo lỗi
-      debugPrint('[auth] refreshMe failed: $e');
-      state = AsyncError(e, st); // nếu muốn show lỗi
-    }
+    state = const AsyncLoading<AuthUser?>().copyWithPrevious(state);
+    state = await AsyncValue.guard(() async {
+      return _repo.fetchMe();
+    });
   }
 
   Future<void> logout() async {

@@ -6,22 +6,17 @@ class DriverAuthRepository {
   DriverAuthRepository(this._dio);
   final Dio _dio;
 
-  // ====== ENDPOINTS (KHỚP BE) ======
   static const String meEndpoint = '/auth/driver/me';
   static const String onboardingEndpoint = '/auth/driver/onboarding';
   static const String onboardingSubmitEndpoint =
       '/auth/driver/onboarding/submit';
   static const String logoutEndpoint = '/auth/driver/logout';
   static const String refreshEndpoint = '/auth/driver/refresh';
-  // Upload lên Cloudinary qua BE (bạn đang dùng cái này)
   static const String uploadEndpoint = '/auth/driver/upload';
   static const String registerDeviceEndpoint = '/auth/driver/device/register';
   static const String onboardingSubmitMultipartEndpoint =
       '/auth/driver/onboarding/submit-multipart';
 
-  // =========================
-  // Helpers
-  // =========================
   Map<String, dynamic> _unwrapMap(Response res) {
     final body = res.data;
     if (body is Map && body['data'] is Map) {
@@ -45,15 +40,17 @@ class DriverAuthRepository {
     throw Exception(msg);
   }
 
-  // =========================
-  // API
-  // =========================
-
   Future<DriverMe?> getMe() async {
     try {
       final res = await _dio.get(meEndpoint);
+      final body = res.data;
+
+      // ✅ /me có thể trả { success:true, data:null }
+      if (body is Map && body.containsKey('data') && body['data'] == null) {
+        return null;
+      }
+
       final data = _unwrapMap(res);
-      // BE trả {id,email,phone,..., driver_profile:{}}
       return DriverMe.fromJson(data);
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) return null;
@@ -61,7 +58,6 @@ class DriverAuthRepository {
     }
   }
 
-  /// PATCH /auth/driver/onboarding
   Future<void> saveDraft(Map<String, dynamic> patch) async {
     try {
       await _dio.patch(onboardingEndpoint, data: patch);
@@ -70,7 +66,6 @@ class DriverAuthRepository {
     }
   }
 
-  /// POST /auth/driver/onboarding/submit
   Future<void> submit(Map<String, dynamic> payload) async {
     try {
       await _dio.post(onboardingSubmitEndpoint, data: payload);
@@ -86,18 +81,18 @@ class DriverAuthRepository {
     File? idCardBack,
     File? licenseImage,
     File? vehicleImage,
+    File? avatarImage, // ✅ thêm
 
-    // fallback urls nếu user không chọn lại ảnh
     String? idCardFrontUrl,
     String? idCardBackUrl,
     String? licenseImageUrl,
     String? vehicleImageUrl,
+    String? avatarUrl, // ✅ thêm
   }) async {
     try {
       final form = FormData.fromMap({
         ...fields,
 
-        // ✅ nếu có file thì gửi file
         if (idCardFront != null)
           'idCardFront': await MultipartFile.fromFile(
             idCardFront.path,
@@ -129,6 +124,15 @@ class DriverAuthRepository {
           )
         else if (vehicleImageUrl != null)
           'vehicleImageUrl': vehicleImageUrl,
+
+        // ✅ avatar
+        if (avatarImage != null)
+          'avatarImage': await MultipartFile.fromFile(
+            avatarImage.path,
+            filename: avatarImage.path.split('/').last,
+          )
+        else if (avatarUrl != null)
+          'avatarUrl': avatarUrl,
       });
 
       await _dio.post(
@@ -151,14 +155,13 @@ class DriverAuthRepository {
         data: {if (refreshToken != null) 'refreshToken': refreshToken},
       );
     } on DioException catch (e) {
-      // logout fail vẫn không quá critical, nhưng để debug thì throw
       _throwDio(e);
     }
   }
 
   Future<void> registerDevice({
     required String deviceId,
-    required String platform, // android/ios
+    required String platform,
     String? fcmToken,
   }) async {
     await _dio.post(
@@ -167,8 +170,6 @@ class DriverAuthRepository {
     );
   }
 
-  /// Upload -> trả URL
-  /// body: { folder, file }
   Future<String> uploadImage({
     required File file,
     required String folder,
@@ -191,7 +192,6 @@ class DriverAuthRepository {
 
       final body = res.data;
 
-      // hỗ trợ: {success:true,data:{url}} hoặc {url}
       if (body is Map &&
           body['data'] is Map &&
           (body['data'] as Map)['url'] != null) {
@@ -213,7 +213,6 @@ class DriverAuthRepository {
       );
       final body = res.data;
 
-      // expect: { success:true, data:{ accessToken, refreshToken } }
       final data = (body is Map) ? body['data'] : null;
       if (data is Map &&
           data['accessToken'] != null &&

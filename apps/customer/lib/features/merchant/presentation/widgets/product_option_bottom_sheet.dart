@@ -4,6 +4,7 @@ import 'package:customer/core/di/providers.dart';
 import 'package:customer/features/merchant/data/models/merchant_detail_model.dart';
 import 'package:customer/features/merchant/data/models/product_config_model.dart';
 import 'package:customer/features/merchant/presentation/pages/merchant_detail_page.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -172,7 +173,6 @@ class _ProductOptionBottomSheetState
 
               return Column(
                 children: [
-          
                   SizedBox(
                     height: 56,
                     width: double.infinity,
@@ -237,24 +237,21 @@ class _ProductOptionBottomSheetState
                               ),
                               if (p.description.trim().isNotEmpty) ...[
                                 const SizedBox(height: 4),
-                                Expanded(
-                                  child: Text(
-                                    p.description.trim(),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.black54,
-                                      fontWeight: FontWeight.w500,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        p.description.trim(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Hiển thị thêm',
-                                  style: TextStyle(
-                                    color: Colors.blue,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                  ],
                                 ),
                               ],
                               const SizedBox(height: 6),
@@ -264,7 +261,7 @@ class _ProductOptionBottomSheetState
                                     '${p.sold}+ đã bán',
                                     style: const TextStyle(
                                       color: Colors.black54,
-                                      fontSize: 12
+                                      fontSize: 12,
                                     ),
                                   ),
                                   const SizedBox(width: 10),
@@ -272,11 +269,10 @@ class _ProductOptionBottomSheetState
                                     '${p.reviews} lượt thích',
                                     style: const TextStyle(
                                       color: Colors.black54,
-                                      fontSize: 12
+                                      fontSize: 12,
                                     ),
                                   ),
                                   const SizedBox(width: 10),
-                                  
                                 ],
                               ),
                               const SizedBox(height: 10),
@@ -359,11 +355,31 @@ class _ProductOptionBottomSheetState
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
                           child: TextField(
                             controller: _noteCtrl,
+                            // 1. Cấu hình số dòng
+                            minLines: 1, // Bắt đầu với 1 dòng
+                            maxLines:
+                                5, // Mở rộng tối đa 5 dòng, sau đó sẽ tự động cuộn bên trong
+                            // 2. Cho phép bàn phím hiện nút "Enter" để xuống dòng
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+
+                            cursorColor: CupertinoColors.activeBlue,
+                            style: const TextStyle(fontSize: 13),
                             decoration: InputDecoration(
                               hintText: 'Thêm ghi chú...',
-                              hintStyle: const TextStyle(color: Colors.black38),
+                              hintStyle: const TextStyle(
+                                color: Colors.black38,
+                                fontSize: 13,
+                              ),
                               filled: true,
                               fillColor: const Color(0xFFF3F4F6),
+
+                              // 3. (Tùy chọn) Thêm padding bên trong để chữ không bị sát mép quá khi có nhiều dòng
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -456,8 +472,8 @@ class _ProductOptionBottomSheetState
                             'Thêm vào giỏ hàng – ${money(total)}',
                             style: TextStyle(
                               color: canSubmit ? Colors.white : Colors.black38,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
                             ),
                           ),
                         ),
@@ -533,7 +549,11 @@ class _SquareBtn extends StatelessWidget {
             width: 1.5,
           ),
         ),
-        child: Icon(icon, color: filled ? Colors.white : AppColor.primary, size: 13,),
+        child: Icon(
+          icon,
+          color: filled ? Colors.white : AppColor.primary,
+          size: 13,
+        ),
       ),
     );
   }
@@ -579,8 +599,8 @@ class _ChoiceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final box = Container(
-      width: 28,
-      height: 28,
+      width: 20,
+      height: 20,
       decoration: BoxDecoration(
         color: selected ? AppColor.primary : Colors.transparent,
         borderRadius: BorderRadius.circular(6),
@@ -612,8 +632,8 @@ class _ChoiceTile extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -670,8 +690,8 @@ class _ToppingTile extends StatelessWidget {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -718,28 +738,28 @@ class _MiniQty extends StatelessWidget {
         InkWell(
           onTap: (enabled && qty > 0) ? onMinus : null,
           child: Container(
-            width: 32,
-            height: 32,
+            width: 25,
+            height: 25,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(3),
               border: Border.all(color: Colors.black26),
             ),
-            child: const Icon(Icons.remove, size: 18),
+            child: const Icon(Icons.remove, size: 14),
           ),
         ),
         const SizedBox(width: 10),
-        Text('$qty', style: const TextStyle(fontWeight: FontWeight.w800)),
+        Text('$qty', style: const TextStyle(fontWeight: FontWeight.w500)),
         const SizedBox(width: 10),
         InkWell(
           onTap: (enabled && qty < maxQty) ? onPlus : null,
           child: Container(
-            width: 32,
-            height: 32,
+            width: 25,
+            height: 25,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(3),
               color: AppColor.primary,
             ),
-            child: const Icon(Icons.add, size: 18, color: Colors.white),
+            child: const Icon(Icons.add, size: 14, color: Colors.white),
           ),
         ),
       ],

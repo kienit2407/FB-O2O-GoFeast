@@ -22,7 +22,10 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
 import { BenefitsModule } from './modules/benefits/benefits.module';
 import { CartModule } from './modules/carts/cart.module';
-
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { DineInModule } from './modules/dinein/dine-in.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SearchModule } from './modules/search/search.module';
 @Module({
   imports: [
     CacheModule.registerAsync({
@@ -52,14 +55,18 @@ import { CartModule } from './modules/carts/cart.module';
     PaymentsModule,
     PromotionsModule,
     GeoModule,
+    RealtimeModule,
     NotificationsModule,
+    DineInModule,
     DriversModule,
     FeedModule,
     ReviewsModule,
     FavoritesModule,
     CartModule,
     BenefitsModule,
+    SearchModule,
     ReviewsModule,
+    ScheduleModule.forRoot(),
   ],
   providers: [],
 })

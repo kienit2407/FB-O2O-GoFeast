@@ -12,7 +12,10 @@
     <application
         android:label="FaB-O2O Customer"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon">
+        <meta-data
+    android:name="com.google.android.geo.API_KEY"
+    android:value="${AIzaSyB8sP-JlWwz1QLyhEb_MInGIr8prfgVqBk}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -61,7 +61,6 @@ export class UpdateMerchantProfileDto {
     address?: string;
 
     @IsOptional()
-    @IsIn(Object.values(StoreCategory))
     category?: StoreCategory;
 
     // FE gửi lat/lng, BE sẽ convert sang GeoJSON

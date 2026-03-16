@@ -17,4 +17,5 @@ export class DriverOnboardingSubmitDto {
     @IsString() vehicleModel: string;
     @IsString() vehiclePlate: string;
     @IsString() vehicleImageUrl: string;
+    @IsString() avatarUrl: string;
 }

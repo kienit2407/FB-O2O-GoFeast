@@ -291,7 +291,7 @@ export class FeedService {
 
         return {
             key: 'food_for_you',
-            title: 'Food for you',
+            title: 'Dành cho bạn',
             items: products.map((p: any) => {
                 const m = merchantMap.get(String(p.merchant_id));
                 const imageUrls = this.pickImageUrls(p);
@@ -374,7 +374,7 @@ export class FeedService {
                 orders_7d: m.orders_7d,
             }));
 
-        const payload = { key: 'people_love', title: 'People love food from', items: list };
+        const payload = { key: 'people_love', title: 'Những khác có thể thích', items: list };
 
         // cache 5 phút
         await this.cache.set(cacheKey, payload, 5 * 60);
@@ -421,7 +421,7 @@ export class FeedService {
 
         const payload = {
             key: 'restaurants_you_may_like',
-            title: 'Restaurants you may like',
+            title: 'Có thể bạn sẽ thích',
             items: merged.map((m) => ({
                 type: 'merchant',
                 merchant_id: String(m._id),

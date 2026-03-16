@@ -90,10 +90,10 @@ export class DriverAuthController {
     const url = (result as any)?.secure_url ?? (result as any)?.url;
     if (!url) throw new BadRequestException('Upload failed');
 
-    // ✅ chỉ trả url, không đụng DB ở đây
+    //  chỉ trả url, không đụng DB ở đây
     return { success: true, data: { url } };
   }
-  // ✅ NEW: SUBMIT 1 PHÁT (multipart)
+  //  NEW: SUBMIT 1 PHÁT (multipart)
   @Post('onboarding/submit-multipart')
   @UseGuards(JwtAuthGuard, RolesGuard, ClientGuard)
   @Roles('driver')
@@ -105,6 +105,7 @@ export class DriverAuthController {
         { name: 'idCardBack', maxCount: 1 },
         { name: 'licenseImage', maxCount: 1 },
         { name: 'vehicleImage', maxCount: 1 },
+        { name: 'avatarImage', maxCount: 1 },
       ],
       {
         storage: memoryStorage(),
@@ -123,6 +124,7 @@ export class DriverAuthController {
       idCardBack?: Express.Multer.File[];
       licenseImage?: Express.Multer.File[];
       vehicleImage?: Express.Multer.File[];
+      avatarImage?: Express.Multer.File[];
     },
     @Body() body: any,
   ) {
@@ -148,6 +150,7 @@ export class DriverAuthController {
     const idCardBackUrl = await getUrl('idCardBackUrl', files?.idCardBack?.[0]);
     const licenseImageUrl = await getUrl('licenseImageUrl', files?.licenseImage?.[0]);
     const vehicleImageUrl = await getUrl('vehicleImageUrl', files?.vehicleImage?.[0]);
+    const avatarUrl = await getUrl('avatarUrl', files?.avatarImage?.[0]);
 
     const payload: DriverOnboardingSubmitDto = {
       phone: (body?.phone ?? '').toString().trim(),
@@ -164,6 +167,7 @@ export class DriverAuthController {
       vehicleModel: (body?.vehicleModel ?? '').toString().trim(),
       vehiclePlate: (body?.vehiclePlate ?? '').toString().trim(),
       vehicleImageUrl,
+      avatarUrl,
     };
     const data = await this.authService.submitDriverOnboarding(userId, payload);
     return { success: true, data };

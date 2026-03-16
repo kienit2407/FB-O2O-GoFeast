@@ -29,6 +29,8 @@ export class User {
   status: UserStatus;
   @Prop()
   password_hash: string;
+  @Prop({ type: String, default: null })
+  avatar_public_id: string | null;
 
   @Prop({ type: [String], default: [] })
   auth_methods: string[];

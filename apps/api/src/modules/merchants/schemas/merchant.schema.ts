@@ -93,7 +93,8 @@ export class Merchant {
     close_time: string;
     is_closed: boolean;
   }[];
-
+  @Prop({ type: String, default: null, index: true })
+  name_search: string | null;
   // Order settings
   @Prop({ default: false })
   is_accepting_orders: boolean;
@@ -171,3 +172,4 @@ MerchantSchema.index({ email: 1 }, { unique: true, sparse: true });  //  sparse 
 MerchantSchema.index({ location: '2dsphere' });
 MerchantSchema.index({ approval_status: 1, is_accepting_orders: 1 });
 MerchantSchema.index({ deleted_at: 1 });
+MerchantSchema.index({ name_search: 1, approval_status: 1, deleted_at: 1 });

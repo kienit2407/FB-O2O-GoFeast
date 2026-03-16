@@ -55,12 +55,20 @@ dependencies:
   firebase_messaging: ^16.1.1
   geolocator: ^14.0.2
   mobile_scanner: ^7.2.0
+  wechat_assets_picker: ^10.1.1
   maplibre_gl: ^0.25.0
   lottie: ^3.3.2
   scrollable_positioned_list: ^0.3.8
   shimmer: ^3.0.0
+  photo_view: ^0.15.0 
+  video_player: ^2.9.2
   url_launcher: ^6.3.2
-  
+  flutter_map: ^8.2.2
+  latlong2: ^0.9.1
+  google_maps_flutter: ^2.14.2
+  flutter_local_notifications: ^20.1.0
+
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -85,7 +93,13 @@ flutter:
     - assets/icons/
     - assets/fonts/
 
-
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/images/icon_app.png" # ĐƯỜNG DẪN ĐẾN FILE ẢNH CỦA BẠN
+  adaptive_icon_background: "#EE4D2D" # Ví dụ lấy màu cam ShopeeFood bạn hỏi lúc nãy
+  min_sdk_android: 21 # Tuỳ chọn
 
 fonts:
   - family: Inter

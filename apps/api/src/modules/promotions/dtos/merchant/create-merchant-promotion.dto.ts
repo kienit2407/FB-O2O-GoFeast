@@ -1,7 +1,10 @@
 import { Type } from 'class-transformer';
 import {
     ArrayNotEmpty,
+    ArrayUnique,
     IsArray,
+    IsBoolean,
+    IsDateString,
     IsEnum,
     IsMongoId,
     IsNumber,
@@ -10,11 +13,12 @@ import {
     Min,
     ValidateIf,
     ValidateNested,
-    IsDateString,
-    IsBoolean,
 } from 'class-validator';
 import {
+    PromotionActivationType,
     PromotionApplyLevel,
+    PromotionOrderType,
+    PromotionPaymentMethod,
     PromotionScope,
     PromotionType,
 } from '../../schemas/promotion.schema';
@@ -75,6 +79,36 @@ export class CreateMerchantPromotionDto {
     @IsNumber()
     @Min(0)
     min_order_amount?: number;
+
+    // ===== NEW =====
+    @IsOptional()
+    @IsEnum(PromotionActivationType)
+    activation_type?: PromotionActivationType;
+
+    @Type(() => Number)
+    @IsOptional()
+    @IsNumber()
+    priority?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    can_stack_with_voucher?: boolean;
+
+    @IsOptional()
+    @IsArray()
+    @ArrayUnique()
+    @IsEnum(PromotionOrderType, { each: true })
+    allowed_order_types?: PromotionOrderType[];
+
+    @IsOptional()
+    @IsArray()
+    @ArrayUnique()
+    @IsEnum(PromotionPaymentMethod, { each: true })
+    allowed_payment_methods?: PromotionPaymentMethod[];
+
+    @IsOptional()
+    @IsString()
+    exclusive_group?: string;
 
     @IsOptional()
     @IsBoolean()

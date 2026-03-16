@@ -1,15 +1,21 @@
 // lib/main_shell.dart
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:customer/app/theme/app_color.dart';
+import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/utils/global_loading.dart';
 import 'package:customer/features/auth/presentation/viewmodels/auth_providers.dart';
 import 'package:customer/features/home/presentation/pages/home_page.dart';
-import 'package:customer/features/home/presentation/widgets/qr_scan.dart';
+import 'package:customer/features/dinein/presentation/pages/qr_scan_page.dart';
+import 'package:customer/features/notifications/presentation/pages/notifications_page.dart';
+import 'package:customer/features/orders/presentation/pages/my_orders_page.dart';
 import 'package:customer/features/profile/presentation/pages/profile_page.dart';
+import 'package:customer/features/promotion/presentation/widgets/promotion_popup_entry.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:lottie/lottie.dart';
 
@@ -20,7 +26,8 @@ class MainShell extends ConsumerStatefulWidget {
   ConsumerState<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends ConsumerState<MainShell> {
+class _MainShellState extends ConsumerState<MainShell>
+    with WidgetsBindingObserver {
   int _index = 0;
 
   // Ẩn/hiện nav bar khi scroll (chỉ ở tab Home)
@@ -28,13 +35,84 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   // Lazy build (đúng length = 5)
   final List<bool> _built = [true, false, false, false, false];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // preload badge order
+      await ref.read(myOrdersControllerProvider.notifier).loadCounts();
+
+      // preload badge notification
+      await ref.read(notificationControllerProvider.notifier).loadUnreadOnly();
+
+      // start socket
+      await ref.read(customerSocketBootstrapControllerProvider).start();
+      //restore lại context bàn
+      await ref.read(dineInSessionProvider.notifier).restore();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.resumed) {
+      Future.microtask(() async {
+        if (!mounted) return;
+
+        await ref.read(myOrdersControllerProvider.notifier).loadCounts();
+        await ref
+            .read(notificationControllerProvider.notifier)
+            .loadUnreadOnly();
+      });
+    }
+  }
+
+  bool _isProtectedTab(int index) {
+    return index == 1 || index == 3 || index == 4;
+  }
+
+  Future<void> _openProtectedSigninAndMaybeContinue(int targetIndex) async {
+    final authState = ref.read(authViewModelProvider);
+    final isAuthed = authState.valueOrNull != null;
+
+    if (!_isProtectedTab(targetIndex) || isAuthed) {
+      _selectTab(targetIndex);
+      return;
+    }
+
+    final result = await context.push<bool>('/signin');
+
+    if (!mounted) return;
+
+    final authedNow = ref.read(authViewModelProvider).valueOrNull != null;
+    if (result == true || authedNow) {
+      _selectTab(targetIndex);
+    }
+  }
+
+  void _selectTab(int i) {
+    setState(() {
+      _index = i;
+      _built[i] = true;
+      _isVisible = true;
+    });
+
+    if (i == 1) {
+      unawaited(ref.read(myOrdersControllerProvider.notifier).bootstrap());
+    } else if (i == 3) {
+      unawaited(ref.read(notificationControllerProvider.notifier).bootstrap());
+    }
+  }
 
   // TODO: Thay các trang này bằng page thật của dự án bạn
   final List<Widget> _pages = const [
     HomePage(),
-    SizedBox.shrink(), // OrdersPage()
+    MyOrdersPage(),
     SizedBox.shrink(), // (placeholder cho Scan - không dùng)
-    SizedBox.shrink(), // NotificationsPage() hoặc FavoritesPage tuỳ dự án
+    NotificationsPage(),
     ProfilePage(),
   ];
 
@@ -55,11 +133,24 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final double bottomPadding = MediaQuery.of(context).padding.bottom;
     const double navBarHeight = 55.0;
     final authState = ref.watch(authViewModelProvider);
     final user = authState.valueOrNull;
+
+    final myOrdersState = ref.watch(myOrdersControllerProvider);
+    final notificationState = ref.watch(notificationControllerProvider);
+
+    final orderBadge = myOrdersState.counts.activeCount;
+    final notificationBadge = notificationState.unreadCount;
+    // ref.read(customerSocketBootstrapControllerProvider).start();
     return Scaffold(
       extendBody: true,
       body: NotificationListener<UserScrollNotification>(
@@ -84,6 +175,7 @@ class _MainShellState extends ConsumerState<MainShell> {
                 return _pages[i];
               }),
             ),
+             PromotionPopupEntry(),
           ],
         ),
       ),
@@ -179,31 +271,30 @@ class _MainShellState extends ConsumerState<MainShell> {
                             ),
                             indicatorColor: Colors.transparent,
                             selectedIndex: _index,
-                            onDestinationSelected: (i) {
-                              // tab giữa chỉ là placeholder, không làm gì
-                              if (i == 2) return;
+                            onDestinationSelected: (i) async {
                               if (i == 2) {
                                 _isVisible = true;
-                                _openScanner(context);
+                                await _openScanner(context);
                                 return;
                               }
 
-                              setState(() {
-                                _index = i;
-                                _built[i] = true;
-                                _isVisible =
-                                    true; // chuyển tab thì hiện nav ngay
-                              });
+                              await _openProtectedSigninAndMaybeContinue(i);
                             },
                             destinations: [
                               NavigationDestination(
                                 icon: Icon(Icons.restaurant_outlined),
                                 selectedIcon: Icon(Icons.restaurant),
-                                label: 'Home',
+                                label: 'Trang chủ',
                               ),
                               NavigationDestination(
-                                icon: Icon(Icons.receipt_long_outlined),
-                                selectedIcon: Icon(Icons.receipt_long),
+                                icon: _NavIconWithBadge(
+                                  icon: const Icon(Icons.receipt_long_outlined),
+                                  badge: orderBadge,
+                                ),
+                                selectedIcon: _NavIconWithBadge(
+                                  icon: const Icon(Icons.receipt_long),
+                                  badge: orderBadge,
+                                ),
                                 label: 'Đơn hàng',
                               ),
 
@@ -215,8 +306,14 @@ class _MainShellState extends ConsumerState<MainShell> {
                               ),
 
                               NavigationDestination(
-                                icon: Icon(Iconsax.notification_copy),
-                                selectedIcon: Icon(Iconsax.notification),
+                                icon: _NavIconWithBadge(
+                                  icon: const Icon(Iconsax.notification_copy),
+                                  badge: notificationBadge,
+                                ),
+                                selectedIcon: _NavIconWithBadge(
+                                  icon: const Icon(Iconsax.notification),
+                                  badge: notificationBadge,
+                                ),
                                 label: 'Thông báo',
                               ),
                               NavigationDestination(
@@ -273,6 +370,45 @@ class _MainShellState extends ConsumerState<MainShell> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NavIconWithBadge extends StatelessWidget {
+  const _NavIconWithBadge({required this.icon, required this.badge});
+
+  final Widget icon;
+  final int badge;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        icon,
+        if (badge > 0)
+          Positioned(
+            right: -6,
+            top: -6,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                badge > 99 ? '99+' : '$badge',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -389,7 +525,7 @@ class _ScanButtonState extends State<_ScanButton>
         ),
         const SizedBox(height: 4),
         const Text(
-          'Scan',
+          'Quét đặt món',
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w600,

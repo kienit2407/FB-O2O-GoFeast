@@ -8,7 +8,27 @@ import { OptionalJwtAuthGuard } from 'src/modules/auth';
 @Controller('carts')
 export class CartPublicController {
     constructor(private readonly cartService: CartService) { }
+    @UseGuards(AuthGuard('jwt'))
+    @Get('delivery/drafts')
+    async listDeliveryDrafts(
+        @Req() req: any,
+        @Query('limit') limit?: string,
+        @Query('cursor') cursor?: string,
+    ) {
+        const userId = req.user?.userId;
+        return this.cartService.listDeliveryDraftCarts({
+            userId,
+            limit: limit ? Number(limit) : 10,
+            cursor,
+        });
+    }
 
+    @UseGuards(AuthGuard('jwt'))
+    @Post('delivery/drafts/clear-all')
+    async clearAllDeliveryDrafts(@Req() req: any) {
+        const userId = req.user?.userId;
+        return this.cartService.clearAllDeliveryDraftCarts({ userId });
+    }
     // DELIVERY (AUTH REQUIRED)
     @UseGuards(AuthGuard('jwt'))
     @Get('delivery/current')

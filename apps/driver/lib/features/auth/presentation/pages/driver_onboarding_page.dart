@@ -1,14 +1,14 @@
 import 'dart:io';
-import 'package:driver/features/auth/presentation/viewmodels/auth_provider.dart';
+
+import 'package:driver/app/theme/app_color.dart';
+import 'package:driver/core/di/providers.dart';
+import 'package:driver/features/auth/data/models/driver_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:image_cropper/image_cropper.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:go_router/go_router.dart';
-
-import 'package:driver/features/auth/data/models/driver_models.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class DriverOnboardingPage extends ConsumerStatefulWidget {
   const DriverOnboardingPage({super.key});
@@ -19,7 +19,7 @@ class DriverOnboardingPage extends ConsumerStatefulWidget {
 }
 
 class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
-  static const int _totalSteps = 5;
+  static const int _totalSteps = 6;
 
   int _step = 0;
   bool _saving = false;
@@ -28,16 +28,19 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
   final ImagePicker _picker = ImagePicker();
   final _phoneCtrl = TextEditingController();
   final _idCardCtrl = TextEditingController();
-
+  final _vehicleBrandCtrl = TextEditingController();
   final _licenseNoCtrl = TextEditingController();
-  String? _licenseType; // A1/A2/B1/B2
+  String? _licenseType;
   DateTime? _licenseExpiry;
 
   String? _vehicleBrand;
   final _vehicleModelCtrl = TextEditingController();
   final _vehiclePlateCtrl = TextEditingController();
+  bool _didPrefill = false;
 
-  // urls after upload
+  String? _avatarUrl;
+  File? _avatarFile;
+
   String? _idFrontUrl;
   String? _idBackUrl;
   String? _licenseImgUrl;
@@ -47,11 +50,6 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
   File? _idBackFile;
   File? _licenseFile;
   File? _vehicleFile;
-  // loading for each upload box
-  bool _upIdFront = false;
-  bool _upIdBack = false;
-  bool _upLicense = false;
-  bool _upVehicle = false;
 
   static const _licenseTypes = ['A1', 'A2', 'B1', 'B2'];
   static const _vehicleBrands = [
@@ -68,9 +66,8 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     super.initState();
     _pc = PageController(initialPage: 0);
 
-    // prefill từ me nếu có
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final me = ref.read(driverAuthViewModelProvider).valueOrNull;
+      final me = ref.read(driverAuthControllerProvider).me;
       final p = me?.driverProfile;
 
       if (me?.phone != null) _phoneCtrl.text = me!.phone!;
@@ -86,6 +83,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
       _licenseExpiry = p.licenseExpiry;
 
       _vehicleBrand = p.vehicleBrand;
+      _vehicleBrandCtrl.text = p.vehicleBrand ?? '';
       _vehicleModelCtrl.text = p.vehicleModel ?? '';
       _vehiclePlateCtrl.text = p.vehiclePlate ?? '';
       _vehicleImgUrl = p.vehicleImageUrl;
@@ -97,18 +95,45 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
   @override
   void dispose() {
     _pc.dispose();
-
     _phoneCtrl.dispose();
     _idCardCtrl.dispose();
     _licenseNoCtrl.dispose();
     _vehicleModelCtrl.dispose();
     _vehiclePlateCtrl.dispose();
+    _vehicleBrandCtrl.dispose();
     super.dispose();
   }
 
-  // =========================
-  // Helpers UI/Flow
-  // =========================
+  void _prefillFromMe(DriverMe me) {
+    if (_didPrefill) return;
+    _didPrefill = true;
+
+    final p = me.driverProfile;
+
+    if (me.phone != null) _phoneCtrl.text = me.phone!;
+    _avatarUrl = me.avatarUrl;
+
+    if (p == null) {
+      if (mounted) setState(() {});
+      return;
+    }
+
+    _idCardCtrl.text = p.idCardNumber ?? '';
+    _idFrontUrl = p.idCardFrontUrl;
+    _idBackUrl = p.idCardBackUrl;
+
+    _licenseNoCtrl.text = p.licenseNumber ?? '';
+    _licenseType = p.licenseType;
+    _licenseImgUrl = p.licenseImageUrl;
+    _licenseExpiry = p.licenseExpiry;
+
+    _vehicleBrand = p.vehicleBrand;
+    _vehicleModelCtrl.text = p.vehicleModel ?? '';
+    _vehiclePlateCtrl.text = p.vehiclePlate ?? '';
+    _vehicleImgUrl = p.vehicleImageUrl;
+
+    if (mounted) setState(() {});
+  }
 
   void _gotoStep(int s) {
     final next = s.clamp(0, _totalSteps - 1);
@@ -120,27 +145,17 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     );
   }
 
-  Future<String?> _uploadIfNeeded({
-    required File? file,
-    required String? existingUrl,
-    required String folder,
-  }) async {
-    // Không chọn file mới => giữ url cũ (nếu có)
-    if (file == null) return existingUrl;
-
-    final vm = ref.read(driverAuthViewModelProvider.notifier);
-    final url = await vm.uploadImage(file: file, folder: folder);
-    return url;
-  }
-
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColor.textPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    );
   }
-
-  // =========================
-  // Draft / Validate
-  // =========================
 
   bool _hasFileOrUrl(File? f, String? url) =>
       f != null || (url?.isNotEmpty ?? false);
@@ -162,10 +177,14 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     }
 
     if (step == 3) {
-      return (_vehicleBrand != null) &&
+      return (_vehicleBrand?.trim().isNotEmpty ?? false) &&
           _vehicleModelCtrl.text.trim().isNotEmpty &&
           _vehiclePlateCtrl.text.trim().isNotEmpty &&
           _hasFileOrUrl(_vehicleFile, _vehicleImgUrl);
+    }
+
+    if (step == 4) {
+      return _hasFileOrUrl(_avatarFile, _avatarUrl);
     }
 
     return true;
@@ -212,7 +231,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
   Future<void> _submit() async {
     if (_saving) return;
 
-    for (int s = 0; s <= 3; s++) {
+    for (int s = 0; s <= 4; s++) {
       if (!_validateStep(s)) {
         _showSnack('Bạn đang thiếu thông tin ở bước ${s + 1}');
         _gotoStep(s);
@@ -222,7 +241,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
 
     setState(() => _saving = true);
     try {
-      final vm = ref.read(driverAuthViewModelProvider.notifier);
+      final vm = ref.read(driverAuthControllerProvider.notifier);
 
       final fields = {
         'phone': _phoneCtrl.text.trim(),
@@ -237,18 +256,16 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
 
       await vm.submitMultipart(
         fields: fields,
-
-        // file mới (nếu user chọn)
         idCardFront: _idFrontFile,
         idCardBack: _idBackFile,
         licenseImage: _licenseFile,
         vehicleImage: _vehicleFile,
-
-        // fallback url cũ (nếu không chọn lại)
+        avatarImage: _avatarFile,
         idCardFrontUrl: _idFrontUrl,
         idCardBackUrl: _idBackUrl,
         licenseImageUrl: _licenseImgUrl,
         vehicleImageUrl: _vehicleImgUrl,
+        avatarUrl: _avatarUrl,
       );
 
       if (!mounted) return;
@@ -259,9 +276,6 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
       if (mounted) setState(() => _saving = false);
     }
   }
-  // =========================
-  // Pick / Crop / Upload
-  // =========================
 
   Future<File?> _pickFromCameraAndCrop({CropAspectRatio? ratio}) async {
     final cam = await Permission.camera.request();
@@ -323,8 +337,6 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     }
   }
 
-  /// ✅ Upload lên Cloudinary qua BE
-  /// type: 'id_card_front' | 'id_card_back' | 'license' | 'vehicle'
   Future<void> _uploadToField({
     required String type,
     required Future<File?> Function() pickFn,
@@ -337,9 +349,8 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
       final file = await pickFn();
       if (file == null) return;
 
-      // ⚠️ yêu cầu ViewModel có hàm uploadImage(file, type)
       final url = await ref
-          .read(driverAuthViewModelProvider.notifier)
+          .read(driverAuthControllerProvider.notifier)
           .uploadImage(file: file, folder: type);
 
       setUrl(url);
@@ -359,37 +370,75 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
       initialDate: _licenseExpiry ?? now,
       firstDate: now.subtract(const Duration(days: 365 * 20)),
       lastDate: now.add(const Duration(days: 365 * 20)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColor.primary,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: AppColor.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked == null) return;
     setState(() => _licenseExpiry = picked);
   }
 
-  // =========================
-  // Screens (one step per page)
-  // =========================
+  InputDecoration _decor({
+    required String label,
+    String? hint,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: AppColor.surfaceWarm,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      labelStyle: const TextStyle(
+        color: AppColor.textSecondary,
+        fontWeight: FontWeight.w500,
+        fontSize: 12,
+      ),
+      hintStyle: const TextStyle(color: AppColor.textMuted, fontSize: 12),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColor.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColor.primary, width: 1.4),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: const BorderSide(color: AppColor.border),
+      ),
+    );
+  }
 
   Widget _screenPhone() {
     return _StepScaffold(
-      title: 'Bước 1/5',
+      title: 'Bước 1/6',
       headline: 'Số điện thoại',
       description: 'Nhập số điện thoại để liên hệ và xác thực hồ sơ.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
+            cursorColor: AppColor.info,
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(
-              labelText: 'Số điện thoại',
-              hintText: 'Nhập số điện thoại',
-              border: OutlineInputBorder(),
+            decoration: _decor(
+              label: 'Số điện thoại',
+              hint: 'Nhập số điện thoại',
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Lưu ý: Số điện thoại nằm ở User (tài khoản), không nằm ở driver_profile để tránh lệch dữ liệu.',
-            style: TextStyle(color: Colors.black54),
-          ),
         ],
       ),
     );
@@ -397,7 +446,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
 
   Widget _screenIdCard() {
     return _StepScaffold(
-      title: 'Bước 2/5',
+      title: 'Bước 2/6',
       headline: 'Căn cước công dân (CCCD)',
       description: 'Nhập số CCCD và chụp ảnh mặt trước/mặt sau.',
       child: Column(
@@ -405,13 +454,9 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
         children: [
           TextField(
             controller: _idCardCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Số CCCD',
-              hintText: 'Nhập số CCCD',
-              border: OutlineInputBorder(),
-            ),
+            decoration: _decor(label: 'Số CCCD', hint: 'Nhập số CCCD'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           _UploadBox(
             label: 'Mặt trước CCCD (chọn từ thư viện)',
             url: _idFrontUrl,
@@ -424,9 +469,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
               setFile: (f) => _idFrontFile = f,
             ),
           ),
-
-          const SizedBox(height: 10),
-
+          const SizedBox(height: 12),
           _UploadBox(
             label: 'Mặt sau CCCD (chọn từ thư viện)',
             url: _idBackUrl,
@@ -446,7 +489,7 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
 
   Widget _screenLicense() {
     return _StepScaffold(
-      title: 'Bước 3/5',
+      title: 'Bước 3/6',
       headline: 'Giấy phép lái xe (GPLX)',
       description: 'Nhập thông tin GPLX, ngày hết hạn và chụp ảnh GPLX.',
       child: Column(
@@ -454,50 +497,46 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
         children: [
           TextField(
             controller: _licenseNoCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Số GPLX',
-              border: OutlineInputBorder(),
-            ),
+            decoration: _decor(label: 'Số GPLX'),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: _licenseType,
             items: _licenseTypes
                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                 .toList(),
             onChanged: (v) => setState(() => _licenseType = v),
-            decoration: const InputDecoration(
-              labelText: 'Hạng GPLX',
-              border: OutlineInputBorder(),
-            ),
+            decoration: _decor(label: 'Hạng GPLX'),
+            dropdownColor: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            icon: const Icon(Icons.keyboard_arrow_down_rounded),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           InkWell(
             onTap: _pickLicenseExpiry,
+            borderRadius: BorderRadius.circular(16),
             child: InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Ngày hết hạn',
-                border: OutlineInputBorder(),
+              decoration: _decor(
+                label: 'Ngày hết hạn',
+                suffixIcon: const Icon(
+                  Icons.calendar_month_rounded,
+                  color: AppColor.primary,
+                ),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _licenseExpiry == null
-                          ? 'Chọn ngày'
-                          : _licenseExpiry!
-                                .toLocal()
-                                .toString()
-                                .split(' ')
-                                .first,
-                    ),
-                  ),
-                  const Icon(Icons.date_range),
-                ],
+              child: Text(
+                _licenseExpiry == null
+                    ? 'Chọn ngày'
+                    : _licenseExpiry!.toLocal().toString().split(' ').first,
+                style: TextStyle(
+                  color: _licenseExpiry == null
+                      ? AppColor.textMuted
+                      : AppColor.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           _UploadBox(
             label: 'Ảnh GPLX (chọn từ thư viện)',
             url: _licenseImgUrl,
@@ -517,40 +556,147 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
 
   Widget _screenVehicle() {
     return _StepScaffold(
-      title: 'Bước 4/5',
+      title: 'Bước 4/6',
       headline: 'Thông tin xe',
       description: 'Chọn hãng xe, nhập dòng xe, biển số và tải ảnh xe.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<String>(
-            value: _vehicleBrand,
-            items: _vehicleBrands
-                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                .toList(),
-            onChanged: (v) => setState(() => _vehicleBrand = v),
-            decoration: const InputDecoration(
-              labelText: 'Hãng xe',
-              border: OutlineInputBorder(),
-            ),
+          Autocomplete<String>(
+            initialValue: TextEditingValue(text: _vehicleBrand ?? ''),
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              final query = textEditingValue.text.trim().toLowerCase();
+
+              if (query.isEmpty) {
+                return _vehicleBrands;
+              }
+
+              return _vehicleBrands.where(
+                (item) => item.toLowerCase().contains(query),
+              );
+            },
+            onSelected: (value) {
+              setState(() {
+                _vehicleBrand = value;
+                _vehicleBrandCtrl.text = value;
+              });
+            },
+            fieldViewBuilder:
+                (context, textEditingController, focusNode, onFieldSubmitted) {
+                  if (textEditingController.text.isEmpty &&
+                      _vehicleBrandCtrl.text.isNotEmpty) {
+                    textEditingController.text = _vehicleBrandCtrl.text;
+                  }
+
+                  return TextField(
+                    style: TextStyle(fontSize: 12),
+                    cursorColor: AppColor.info,
+                    controller: textEditingController,
+                    focusNode: focusNode,
+
+                    onChanged: (value) {
+                      setState(() {
+                        _vehicleBrand = value.trim();
+                        _vehicleBrandCtrl.text = value;
+                      });
+                    },
+                    decoration: _decor(
+                      label: 'Hãng xe',
+                      hint: 'Chọn hoặc nhập hãng xe',
+                      suffixIcon: const Icon(Icons.keyboard_arrow_down_rounded),
+                    ),
+                  );
+                },
+            optionsViewBuilder: (context, onSelected, options) {
+              final items = options.toList();
+
+              if (items.isEmpty) {
+                return Align(
+                  alignment: Alignment.topLeft,
+                  child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.white,
+                    child: Container(
+                      width: 300,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColor.border),
+                      ),
+                      child: const Text(
+                        'Không có trong gợi ý, bạn có thể nhập hãng xe của mình.',
+                        style: TextStyle(
+                          color: AppColor.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white,
+                  child: Container(
+                    width: 300,
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColor.border),
+                    ),
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, color: AppColor.divider),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return InkWell(
+                          onTap: () => onSelected(item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Text(
+                              item,
+                              style: const TextStyle(
+                                color: AppColor.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           TextField(
+            cursorColor: AppColor.info,
+            style: TextStyle(fontSize: 12),
             controller: _vehicleModelCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Dòng xe',
-              border: OutlineInputBorder(),
-            ),
+            decoration: _decor(label: 'Dòng xe'),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           TextField(
+            cursorColor: AppColor.info,
+            style: TextStyle(fontSize: 12),
             controller: _vehiclePlateCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Biển số',
-              border: OutlineInputBorder(),
-            ),
+            decoration: _decor(label: 'Biển số'),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           _UploadBox(
             label: 'Ảnh xe (tải từ thư viện)',
             url: _vehicleImgUrl,
@@ -566,9 +712,39 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     );
   }
 
+  Widget _screenPortrait() {
+    return _StepScaffold(
+      title: 'Bước 5/6',
+      headline: 'Ảnh chân dung',
+      description:
+          'Tải ảnh chân dung để cập nhật ảnh đại diện tài khoản tài xế.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _UploadBox(
+            label: 'Ảnh chân dung',
+            url: _avatarUrl,
+            file: _avatarFile,
+            loading: false,
+            onTap: () => _pickToLocal(
+              pickFn: () => _pickFromGalleryAndCrop(
+                ratio: const CropAspectRatio(ratioX: 3, ratioY: 4),
+              ),
+              setFile: (f) => _avatarFile = f,
+            ),
+          ),
+          const SizedBox(height: 12),
+          const _InfoNote(
+            text: 'Ảnh này sẽ được lưu vào avatar của tài khoản User.',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _screenSubmit() {
     return _StepScaffold(
-      title: 'Bước 5/5',
+      title: 'Bước 6/6',
       headline: 'Nộp hồ sơ',
       description:
           'Kiểm tra lại thông tin. Sau khi nộp bạn sẽ ở trạng thái chờ duyệt.',
@@ -588,35 +764,61 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
           _SummaryRow(label: 'Hãng xe', value: _vehicleBrand ?? ''),
           _SummaryRow(label: 'Dòng xe', value: _vehicleModelCtrl.text.trim()),
           _SummaryRow(label: 'Biển số', value: _vehiclePlateCtrl.text.trim()),
-          const SizedBox(height: 10),
-          const Text(
-            'Sau khi nộp, bạn sẽ được chuyển sang trang chờ và không thể sử dụng chức năng khác cho đến khi được duyệt.',
-            style: TextStyle(color: Colors.black54),
+          _SummaryRow(
+            label: 'Ảnh chân dung',
+            value: _hasFileOrUrl(_avatarFile, _avatarUrl) ? 'Đã có' : 'Chưa có',
+          ),
+          const SizedBox(height: 14),
+          const _InfoNote(
+            text:
+                'Sau khi nộp, bạn sẽ được chuyển sang trang chờ và không thể sử dụng chức năng khác cho đến khi được duyệt.',
           ),
         ],
       ),
     );
   }
 
-  // =========================
-  // Build
-  // =========================
-
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(driverAuthViewModelProvider).valueOrNull;
+    final auth = ref.watch(driverAuthControllerProvider);
+    final me = auth.me;
     final p = me?.driverProfile;
+
+    if (me != null && !_didPrefill) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _prefillFromMe(me);
+      });
+    }
 
     final rejectedBanner =
         (p?.verificationStatus == DriverVerificationStatus.rejected)
         ? Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            color: Colors.red.withOpacity(.08),
-            child: Text(
-              'Hồ sơ bị từ chối: '
-              '${(p?.verificationNote ?? '').trim().isEmpty ? (p?.verificationReasons.join(', ') ?? '') : p!.verificationNote!}',
-              style: const TextStyle(color: Colors.red),
+            margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColor.danger.withOpacity(.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColor.danger.withOpacity(.18)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.error_outline_rounded, color: AppColor.danger),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Hồ sơ bị từ chối: '
+                    '${(p?.verificationNote ?? '').trim().isEmpty ? (p?.verificationReasons.join(', ') ?? '') : p!.verificationNote!}',
+                    style: const TextStyle(
+                      color: AppColor.danger,
+                      fontWeight: FontWeight.w600,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
             ),
           )
         : const SizedBox.shrink();
@@ -624,83 +826,179 @@ class _DriverOnboardingPageState extends ConsumerState<DriverOnboardingPage> {
     final progress = (_step + 1) / _totalSteps;
     final isLast = _step == _totalSteps - 1;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Onboarding tài xế'),
-        automaticallyImplyLeading: false,
-        actions: [
-          TextButton(
-            onPressed: _saving
-                ? null
-                : () => ref.read(driverAuthViewModelProvider.notifier).logout(),
-            child: const Text('Đăng xuất', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          rejectedBanner,
-          LinearProgressIndicator(value: progress),
-          Expanded(
-            child: PageView(
-              controller: _pc,
-              physics:
-                  const NeverScrollableScrollPhysics(), // ✅ khóa swipe, chỉ Next/Back
-              children: [
-                _screenPhone(),
-                _screenIdCard(),
-                _screenLicense(),
-                _screenVehicle(),
-                _screenSubmit(),
-              ],
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: AppColor.background,
+        appBar: AppBar(
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: AppColor.surface,
+          surfaceTintColor: AppColor.surface,
+          title: const Text(
+            'Onboarding tài xế',
+            style: TextStyle(
+              color: AppColor.textPrimary,
+              fontWeight: FontWeight.w800,
             ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
+          automaticallyImplyLeading: false,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: TextButton(
+                onPressed: _saving
+                    ? null
+                    : () => ref
+                          .read(driverAuthControllerProvider.notifier)
+                          .logout(),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColor.danger,
+                  textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                child: const Text('Đăng xuất'),
+              ),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            rejectedBanner,
+            Container(
+              color: AppColor.surface,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: (_saving || _step == 0) ? null : _back,
-                      child: const Text('Quay lại'),
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        'Bước ${_step + 1}/$_totalSteps',
+                        style: const TextStyle(
+                          color: AppColor.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${(progress * 100).round()}%',
+                        style: const TextStyle(
+                          color: AppColor.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _saving
-                          ? null
-                          : () {
-                              if (isLast) {
-                                _submit();
-                              } else {
-                                _next();
-                              }
-                            },
-                      child: _saving
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(isLast ? 'Nộp hồ sơ' : 'Tiếp tục'),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: AppColor.primaryLight,
+                      valueColor: const AlwaysStoppedAnimation(
+                        AppColor.primary,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: PageView(
+                controller: _pc,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _screenPhone(),
+                  _screenIdCard(),
+                  _screenLicense(),
+                  _screenVehicle(),
+                  _screenPortrait(),
+                  _screenSubmit(),
+                ],
+              ),
+            ),
+            Container(
+              decoration: const BoxDecoration(
+                color: AppColor.surface,
+                border: Border(top: BorderSide(color: AppColor.border)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: (_saving || _step == 0) ? null : _back,
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            foregroundColor: AppColor.textPrimary,
+                            side: const BorderSide(color: AppColor.border),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: const Text(
+                            'Quay lại',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _saving
+                              ? null
+                              : () {
+                                  if (isLast) {
+                                    _submit();
+                                  } else {
+                                    _next();
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            elevation: 0,
+                            backgroundColor: AppColor.primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: AppColor.primary
+                                .withOpacity(.5),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : Text(
+                                  isLast ? 'Nộp hồ sơ' : 'Tiếp tục',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-
-// =========================
-// Widgets
-// =========================
 
 class _StepScaffold extends StatelessWidget {
   const _StepScaffold({
@@ -718,20 +1016,97 @@ class _StepScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppColor.surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AppColor.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColor.primaryLight,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: AppColor.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              headline,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: AppColor.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: const TextStyle(
+                color: AppColor.textSecondary,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 18),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoNote extends StatelessWidget {
+  const _InfoNote({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColor.primaryLight,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColor.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 6),
-          Text(
-            headline,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColor.primary,
+            size: 20,
           ),
-          const SizedBox(height: 6),
-          Text(description, style: const TextStyle(color: Colors.black54)),
-          const SizedBox(height: 16),
-          child,
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColor.textSecondary,
+                height: 1.45,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -746,18 +1121,36 @@ class _SummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+    final isEmpty = value.isEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColor.surfaceWarm,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColor.border),
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 90,
-            child: Text(label, style: const TextStyle(color: Colors.black54)),
+            width: 92,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColor.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           Expanded(
             child: Text(
-              value.isEmpty ? '-' : value,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              isEmpty ? '-' : value,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: isEmpty ? AppColor.textMuted : AppColor.textPrimary,
+              ),
             ),
           ),
         ],
@@ -803,47 +1196,91 @@ class _UploadBox extends StatelessWidget {
         height: double.infinity,
       );
     } else {
-      preview = Center(
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Text(label, textAlign: TextAlign.center),
+      preview = Container(
+        color: AppColor.surfaceWarm,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              height: 44,
+              width: 44,
+              decoration: BoxDecoration(
+                color: AppColor.primaryLight,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.cloud_upload_outlined,
+                color: AppColor.primary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColor.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
 
     return InkWell(
       onTap: loading ? null : onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        height: 120,
+        height: 150,
         width: double.infinity,
         decoration: BoxDecoration(
           border: Border.all(
-            color: done ? Colors.green.withOpacity(.4) : Colors.black12,
+            color: done ? AppColor.success.withOpacity(.45) : AppColor.border,
           ),
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.grey.withOpacity(.06),
+          borderRadius: BorderRadius.circular(18),
+          color: AppColor.surface,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           child: Stack(
             fit: StackFit.expand,
             children: [
               preview,
               if (done)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    height: 28,
+                    width: 28,
+                    decoration: BoxDecoration(
+                      color: AppColor.success,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              if (done)
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      vertical: 6,
-                      horizontal: 10,
+                      vertical: 8,
+                      horizontal: 12,
                     ),
-                    color: Colors.black.withOpacity(.35),
+                    color: Colors.black.withOpacity(.38),
                     child: const Text(
                       'Bấm để thay ảnh',
                       style: TextStyle(
                         color: Colors.white,
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -854,8 +1291,8 @@ class _UploadBox extends StatelessWidget {
                   color: Colors.black.withOpacity(.2),
                   child: const Center(
                     child: SizedBox(
-                      width: 22,
-                      height: 22,
+                      width: 24,
+                      height: 24,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),

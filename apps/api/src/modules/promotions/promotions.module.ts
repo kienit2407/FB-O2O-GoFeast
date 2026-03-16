@@ -15,20 +15,37 @@ import { CarouselBanner, CarouselBannerSchema } from './schemas/carousel-banner.
 import { CarouselBannersService } from './services/carousel-banners.service';
 import { AdminCarouselBannersController } from './controllers/admin-carousel-banners.controller';
 import { CarouselBannersController } from './controllers/carousel-banners.controller';
+import { Category, CategorySchema, Product, ProductSchema } from '../merchants/schemas';
+import { PromotionPushScheduler } from './services/promotion-push.scheduler';
+import { UsersModule } from '../users/users.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { PlatformPromotionsController } from './controllers/platform-promotions.controller';
+import { PublicPromotionsController } from './controllers/public-promotions.controller';
+import { PublicPromotionsService } from './services/public-promotions.service';
+import { BenefitsModule } from '../benefits/benefits.module';
 
 @Module({
     imports: [
+        
         MongooseModule.forFeature([
             { name: Merchant.name, schema: MerchantSchema },
             { name: Promotion.name, schema: PromotionSchema },
             { name: Voucher.name, schema: VoucherSchema },
             { name: CarouselBanner.name, schema: CarouselBannerSchema },
+            { name: Product.name, schema: ProductSchema },
+            { name: Category.name, schema: CategorySchema },
+            
         ]),
         CloudinaryModule,
+        UsersModule,
+        RealtimeModule,
+        BenefitsModule,
+        NotificationsModule,
         MulterModule.register({ dest: './uploads' }),
     ],
-    controllers: [MerchantPromotionsController, AdminPromotionsController, AdminCarouselBannersController, CarouselBannersController],
-    providers: [MerchantPromotionsService, AdminPromotionsService, CloudinaryService, CarouselBannersService],
+    controllers: [MerchantPromotionsController, AdminPromotionsController, AdminCarouselBannersController, CarouselBannersController,PlatformPromotionsController, PublicPromotionsController],
+    providers: [MerchantPromotionsService, AdminPromotionsService, CloudinaryService, CarouselBannersService, PromotionPushScheduler, PublicPromotionsService],
     exports: [MerchantPromotionsService, AdminPromotionsService, CarouselBannersService, MongooseModule],
 })
 export class PromotionsModule { }

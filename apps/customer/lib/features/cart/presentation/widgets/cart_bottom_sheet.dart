@@ -5,8 +5,6 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/features/cart/data/models/cart_models.dart';
 import 'package:customer/features/cart/data/repositories/cart_repository.dart';
-import 'package:customer/features/cart/presentation/viewmodels/cart_controller.dart';
-import 'package:customer/features/cart/presentation/viewmodels/cart_state.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,8 +17,18 @@ String _money(num v) => '${v.toStringAsFixed(0)}đ'.replaceAllMapped(
 );
 
 class CartBottomSheet extends ConsumerStatefulWidget {
-  const CartBottomSheet({super.key, required this.merchantId});
-  final String merchantId;
+  const CartBottomSheet({
+    super.key,
+    required this.params,
+    this.title = 'Giỏ hàng',
+    this.dineInLabel,
+    this.onLeaveTable,
+  });
+
+  final CartParams params;
+  final String title;
+  final String? dineInLabel;
+  final Future<void> Function()? onLeaveTable;
 
   @override
   ConsumerState<CartBottomSheet> createState() => _CartBottomSheetState();
@@ -32,9 +40,7 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
   @override
   void initState() {
     super.initState();
-    _params = CartParams.delivery(merchantId: widget.merchantId);
-
-    // ✅ khi mở sheet: load current cart (để có items)
+    _params = widget.params;
     unawaited(ref.read(cartProvider(_params).notifier).ensureCurrentLoaded());
   }
 
@@ -43,8 +49,7 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
 
     await showModalBottomSheet(
       context: context,
-      useRootNavigator:
-          true, // ✅ để sheet note nổi lên trên sheet cart (iOS rất cần)
+      useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withOpacity(0.35),
@@ -62,15 +67,12 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
     final st = ref.watch(cartProvider(_params));
     final ctrl = ref.read(cartProvider(_params).notifier);
 
-    final current = st.current; // CartResponse?
-    final cart = current?.cart; // CartData?
+    final current = st.current;
+    final cart = current?.cart;
     final items = cart?.items ?? const <CartLine>[];
 
-    final totals = st.summary; // CartTotals
-    final totalQty = totals.itemCount;
+    final totals = st.summary;
     final total = totals.totalEstimated;
-    final hasDiscount = totals.discountEstimated > 0;
-    final original = totals.originalEstimated;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.86,
@@ -95,74 +97,67 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
               ),
               const SizedBox(height: 10),
 
-              // header
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    // 1. Bên trái: Ép sát lề trái
                     Expanded(
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: TextButton(
-                          // Gán null nếu đang update hoặc giỏ hàng trống để nút mờ đi (disabled)
                           onPressed: (st.isUpdating || items.isEmpty)
                               ? null
                               : () {
-                                  // Hiển thị Cupertino Dialog
                                   showCupertinoDialog(
                                     context: context,
-                                    builder: (BuildContext ctx) {
-                                      return CupertinoAlertDialog(
-
-                                        title: Text('Xóa giỏ hàng'),
-                                        content: const Text(
-                                          'Bạn có chắc chắn muốn xóa tất cả sản phẩm khỏi giỏ hàng không?',
+                                    builder: (ctx) => CupertinoAlertDialog(
+                                      title: const Text('Xóa giỏ hàng'),
+                                      content: const Text(
+                                        'Bạn có chắc chắn muốn xóa tất cả sản phẩm khỏi giỏ hàng không?',
+                                      ),
+                                      actions: [
+                                        CupertinoDialogAction(
+                                          isDefaultAction: true,
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: const Text(
+                                            'Hủy',
+                                            style: TextStyle(
+                                              color: CupertinoColors.activeBlue,
+                                            ),
+                                          ),
                                         ),
-                                        actions: [
-                                          // Nút Hủy
-                                          CupertinoDialogAction(
-                                            isDefaultAction: true,
-                                            onPressed: () {
-                                              Navigator.pop(
-                                                ctx,
-                                              ); // Đóng hộp thoại
-                                            },
-                                            child:  Text('Hủy', style: TextStyle(color: CupertinoColors.activeBlue)),
+                                        CupertinoDialogAction(
+                                          isDestructiveAction: true,
+                                          onPressed: () {
+                                            Navigator.pop(ctx);
+                                            ctrl.clearAll();
+                                          },
+                                          child: const Text(
+                                            'Xoá',
+                                            style: TextStyle(
+                                              color: CupertinoColors
+                                                  .destructiveRed,
+                                            ),
                                           ),
-                                          // Nút Xóa
-                                          CupertinoDialogAction(
-                                            isDestructiveAction:
-                                                true, // Giúp chữ có màu đỏ cảnh báo (chuẩn iOS)
-                                            onPressed: () {
-                                              Navigator.pop(
-                                                ctx,
-                                              ); // Đóng hộp thoại trước
-                                              ctrl.clearAll(); // Sau đó gọi hàm xóa
-                                            },
-                                            child: Text('Xoá', style: TextStyle(color: CupertinoColors.destructiveRed)),
-                                          ),
-                                        ],
-                                      );
-                                    },
+                                        ),
+                                      ],
+                                    ),
                                   );
                                 },
-                          child: const Text('Xóa tất cả', style: TextStyle(color: AppColor.primary),),
+                          child: const Text(
+                            'Xóa tất cả',
+                            style: TextStyle(color: AppColor.primary),
+                          ),
                         ),
                       ),
                     ),
-
-                    // 2. Ở giữa: Chữ tự động nằm ngay giữa trung tâm
-                    const Text(
-                      'Giỏ hàng',
-                      style: TextStyle(
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
                         fontSize: 18,
-                        fontWeight: FontWeight
-                            .w600, // Trong ảnh nét chữ không quá dày, w600 là vừa đẹp
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-
-                    // 3. Bên phải: Ép sát lề phải
                     Expanded(
                       child: Align(
                         alignment: Alignment.centerRight,
@@ -177,7 +172,53 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
               ),
               const Divider(height: 1),
 
-              // body
+              if (widget.dineInLabel != null || widget.onLeaveTable != null)
+                Container(
+                  margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7F4),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFFE1D7)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.table_bar_outlined,
+                        size: 18,
+                        color: AppColor.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.dineInLabel ?? 'Ăn tại quán',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: AppColor.primary,
+                          ),
+                        ),
+                      ),
+                      if (widget.onLeaveTable != null)
+                        TextButton(
+                          onPressed: () async {
+                            await widget.onLeaveTable!.call();
+                          },
+                          child: const Text(
+                            'Rời bàn',
+                            style: TextStyle(
+                              color: AppColor.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
               if (st.isLoadingCart && current == null)
                 const Expanded(
                   child: Center(child: CircularProgressIndicator()),
@@ -237,7 +278,45 @@ class _CartBottomSheetState extends ConsumerState<CartBottomSheet> {
                   ),
                 ),
 
-              // bottom summary + CTA
+              Container(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  12,
+                  16,
+                  12 + MediaQuery.of(context).padding.bottom,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 10,
+                      offset: const Offset(0, -3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Tạm tính',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF666666),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _money(total),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColor.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         );
@@ -256,7 +335,6 @@ List<String> _fmtSelectedOptionsCompact(List<dynamic> raw) {
           .trim();
       final opt = (m['option_name'] ?? m['optionName'] ?? '').toString().trim();
 
-      // Ưu tiên giống ShopeeFood: chỉ hiện choice (Coca, Bắp cải trộn...)
       if (choice.isNotEmpty) {
         out.add(choice);
       } else if (opt.isNotEmpty) {
@@ -280,7 +358,6 @@ List<String> _fmtSelectedToppingsCompact(List<dynamic> raw) {
       final qty = (m['quantity'] as num?)?.toInt() ?? 1;
 
       if (name.isNotEmpty) {
-        // ShopeeFood thường hiện kiểu "Phô mai", nếu qty>1 thì "Phô mai x2"
         out.add(qty > 1 ? '$name x$qty' : name);
       }
     } else if (x is String && x.trim().isNotEmpty) {
@@ -292,14 +369,8 @@ List<String> _fmtSelectedToppingsCompact(List<dynamic> raw) {
 
 String _buildLineMetaText(CartLine line) {
   final parts = <String>[];
-
   parts.addAll(_fmtSelectedOptionsCompact(line.selectedOptions));
   parts.addAll(_fmtSelectedToppingsCompact(line.selectedToppings));
-
-  // NOTE: nếu bạn KHÔNG muốn note dính vào dòng option thì bỏ đoạn này
-  // final note = line.note.trim();
-  // if (note.isNotEmpty) parts.add('Ghi chú: $note');
-
   return parts.join(', ');
 }
 
@@ -320,9 +391,9 @@ class _CartLineRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasSale = line.basePrice != null && line.basePrice! > line.unitPrice;
     final metaText = _buildLineMetaText(line);
-
     final note = line.note.trim();
     final noteLabel = note.isEmpty ? 'Thêm ghi chú...' : note;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -355,8 +426,6 @@ class _CartLineRow extends StatelessWidget {
                   fontSize: 14,
                 ),
               ),
-
-              //  NEW: option/topping text dạng "A, B, C" (max 2 lines -> ...)
               if (metaText.trim().isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
@@ -371,9 +440,7 @@ class _CartLineRow extends StatelessWidget {
                   ),
                 ),
               ],
-
               const SizedBox(height: 8),
-
               InkWell(
                 onTap: onEditNote,
                 child: Row(
@@ -382,12 +449,12 @@ class _CartLineRow extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Thêm ghi chú...',
+                        noteLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 10,
-                          color:   Colors.grey ,
+                          color: note.isEmpty ? Colors.grey : Colors.black87,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -505,7 +572,6 @@ class _EditNoteSheetState extends State<_EditNoteSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // header
                 Row(
                   children: [
                     const Expanded(
@@ -525,8 +591,6 @@ class _EditNoteSheetState extends State<_EditNoteSheet> {
                   ],
                 ),
                 const SizedBox(height: 8),
-
-                // text box
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -551,8 +615,6 @@ class _EditNoteSheetState extends State<_EditNoteSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // confirm
                 SizedBox(
                   width: double.infinity,
                   height: 48,

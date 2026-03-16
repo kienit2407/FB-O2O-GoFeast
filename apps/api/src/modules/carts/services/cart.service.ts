@@ -12,6 +12,7 @@ import { Product } from '../../merchants/schemas/product.schema';
 import { ProductOption } from '../../merchants/schemas/product-option.schema';
 import { Topping } from '../../merchants/schemas/topping.schema';
 import { TableSession } from 'src/modules/dinein/schemas';
+import { Merchant, MerchantDocument } from 'src/modules/merchants/schemas';
 
 @Injectable()
 export class CartService {
@@ -21,11 +22,150 @@ export class CartService {
         @InjectModel(ProductOption.name) private readonly optionModel: Model<ProductOption>,
         @InjectModel(Topping.name) private readonly toppingModel: Model<Topping>,
         @InjectModel(TableSession.name) private readonly tableSessionModel: Model<TableSession>,
+        @InjectModel(Merchant.name) private readonly merchantModel: Model<MerchantDocument>, 
     ) { }
 
     private oid(id: string, name = 'id') {
         if (!Types.ObjectId.isValid(id)) throw new BadRequestException(`Invalid ${name}`);
         return new Types.ObjectId(id);
+    }
+    async listDeliveryDraftCarts(args: {
+        userId: string;
+        limit?: number;
+        cursor?: string;
+    }) {
+        if (!args.userId) {
+            throw new UnauthorizedException('Login required');
+        }
+
+        const uid = this.oid(args.userId, 'userId');
+        const limit = Math.min(Math.max(Number(args.limit ?? 10), 1), 20);
+
+        const q: any = {
+            user_id: uid,
+            order_type: OrderType.DELIVERY,
+            status: CartStatus.ACTIVE,
+            deleted_at: null,
+            'items.0': { $exists: true },
+        };
+
+        if (args.cursor) {
+            const [lastActiveRaw, idRaw] = String(args.cursor).split('|');
+            const lastActiveAt = new Date(lastActiveRaw);
+
+            if (!Number.isNaN(lastActiveAt.getTime()) && Types.ObjectId.isValid(idRaw)) {
+                q.$or = [
+                    { last_active_at: { $lt: lastActiveAt } },
+                    {
+                        last_active_at: lastActiveAt,
+                        _id: { $lt: new Types.ObjectId(idRaw) },
+                    },
+                ];
+            }
+        }
+
+        const rows = await this.cartModel
+            .find(q)
+            .sort({ last_active_at: -1, _id: -1 })
+            .limit(limit + 1)
+            .lean();
+
+        const hasMore = rows.length > limit;
+        const sliced = hasMore ? rows.slice(0, limit) : rows;
+
+        const merchantIds = [
+            ...new Set(sliced.map((x: any) => String(x.merchant_id))),
+        ].map((id) => new Types.ObjectId(id));
+
+        const merchants = await this.merchantModel
+            .find({
+                _id: { $in: merchantIds },
+                deleted_at: null,
+            })
+            .select('_id name logo_url address')
+            .lean();
+
+        const merchantMap = new Map<string, any>(
+            merchants.map((m: any) => [String(m._id), m]),
+        );
+
+        const items = sliced.map((cart: any) => {
+            const merchant = merchantMap.get(String(cart.merchant_id));
+            const cartItems = Array.isArray(cart.items) ? cart.items : [];
+
+            const itemCount = cartItems.reduce(
+                (sum: number, it: any) => sum + Number(it.quantity ?? 0),
+                0,
+            );
+
+            const totalAmount = cartItems.reduce(
+                (sum: number, it: any) => sum + Number(it.item_total ?? 0),
+                0,
+            );
+
+            const itemsPreview = cartItems
+                .map((it: any) => String(it.product_name ?? '').trim())
+                .filter(Boolean)
+                .slice(0, 3);
+
+            const previewImageUrl =
+                cartItems.find((it: any) => !!it.product_image_url)?.product_image_url ??
+                merchant?.logo_url ??
+                null;
+
+            return {
+                id: String(cart._id),
+                merchant: {
+                    id: merchant ? String(merchant._id) : String(cart.merchant_id),
+                    name: merchant?.name ?? 'Quán',
+                    logo_url: merchant?.logo_url ?? null,
+                    address: merchant?.address ?? '',
+                },
+                preview_image_url: previewImageUrl,
+                item_count: itemCount,
+                total_amount: totalAmount,
+                items_preview: itemsPreview,
+                updated_at: cart.last_active_at ?? cart.updated_at ?? cart.created_at,
+                service_label: 'Đồ ăn',
+            };
+        });
+
+        const nextCursor =
+            hasMore && sliced.length
+                ? `${new Date(sliced[sliced.length - 1].last_active_at).toISOString()}|${String(sliced[sliced.length - 1]._id)}`
+                : null;
+
+        return {
+            items,
+            next_cursor: nextCursor,
+            has_more: hasMore,
+        };
+    }
+
+    async clearAllDeliveryDraftCarts(args: { userId: string }) {
+        if (!args.userId) {
+            throw new UnauthorizedException('Login required');
+        }
+
+        const uid = this.oid(args.userId, 'userId');
+
+        await this.cartModel.updateMany(
+            {
+                user_id: uid,
+                order_type: OrderType.DELIVERY,
+                status: CartStatus.ACTIVE,
+                deleted_at: null,
+                'items.0': { $exists: true },
+            },
+            {
+                $set: {
+                    items: [],
+                    last_active_at: new Date(),
+                },
+            },
+        );
+
+        return { ok: true };
     }
     async getCartSummaryForMerchantDetail(params: {
         userId: string | null;

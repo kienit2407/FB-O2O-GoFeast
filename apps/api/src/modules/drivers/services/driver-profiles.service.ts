@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -6,6 +6,8 @@ import {
     DriverProfileDocument,
     DriverVerificationStatus,
 } from '../schemas/driver-profile.schema';
+import { OrderLifecycleService } from 'src/modules/orders/services/order-lifecycle.service';
+import { DriverLocationRelayService } from './driver-location-relay.service';
 
 type UpsertDriverProfilePatch = Partial<Pick<
     DriverProfile,
@@ -26,6 +28,7 @@ type UpsertDriverProfilePatch = Partial<Pick<
 export class DriverProfilesService {
     constructor(
         @InjectModel(DriverProfile.name) private readonly model: Model<DriverProfileDocument>,
+        private readonly driverLocationRelayService: DriverLocationRelayService,
     ) { }
 
     async findByUserId(userId: string) {
@@ -121,5 +124,112 @@ export class DriverProfilesService {
             .sort({ submitted_at: -1 })
             .limit(limit)
             .populate('user_id');
+    }
+    async setAvailability(userId: string, acceptFoodOrders: boolean) {
+        const uid = new Types.ObjectId(userId);
+
+        const profile = await this.model.findOne({ user_id: uid });
+        if (!profile) {
+            throw new NotFoundException('Driver profile not found');
+        }
+
+        if (profile.verification_status !== DriverVerificationStatus.APPROVED) {
+            throw new ForbiddenException('Driver is not approved');
+        }
+
+        return this.model.findOneAndUpdate(
+            { user_id: uid },
+            {
+                $set: {
+                    accept_food_orders: acceptFoodOrders,
+                },
+            },
+            { new: true },
+        );
+    }
+
+    async updateCurrentLocation(params: {
+        userId: string;
+        lat: number;
+        lng: number;
+    }) {
+        const uid = new Types.ObjectId(params.userId);
+
+        const profile = await this.model.findOne({ user_id: uid });
+        if (!profile) {
+            throw new NotFoundException('Driver profile not found');
+        }
+
+        if (profile.verification_status !== DriverVerificationStatus.APPROVED) {
+            throw new ForbiddenException('Driver is not approved');
+        }
+
+        const updated = await this.model.findOneAndUpdate(
+            { user_id: uid },
+            {
+                $set: {
+                    current_location: {
+                        type: 'Point',
+                        coordinates: [params.lng, params.lat],
+                    },
+                    last_location_update: new Date(),
+                },
+            },
+            { new: true },
+        );
+
+        await this.driverLocationRelayService.relayActiveOrderLocation({
+            driverUserId: params.userId,
+            lat: params.lat,
+            lng: params.lng,
+        });
+
+        return updated;
+    }
+    async getLiveState(userId: string) {
+        const uid = new Types.ObjectId(userId);
+
+        const profile = await this.model
+            .findOne({ user_id: uid })
+            .select(
+                'user_id verification_status accept_food_orders current_location last_location_update updated_at',
+            )
+            .lean();
+
+        if (!profile) {
+            throw new NotFoundException('Driver profile not found');
+        }
+
+        return profile;
+    }
+
+    async findNearbyAvailableApproved(params: {
+        lat: number;
+        lng: number;
+        radiusMeters?: number;
+        limit?: number;
+    }) {
+        const radiusMeters = params.radiusMeters ?? 5000;
+        const limit = params.limit ?? 20;
+
+        return this.model
+            .find({
+                verification_status: DriverVerificationStatus.APPROVED,
+                accept_food_orders: true,
+                current_location: {
+                    $near: {
+                        $geometry: {
+                            type: 'Point',
+                            coordinates: [params.lng, params.lat],
+                        },
+                        $maxDistance: radiusMeters,
+                    },
+                },
+            })
+            .limit(limit)
+            .select(
+                'user_id current_location last_location_update accept_food_orders verification_status',
+            )
+            .lean();
     }
 }

@@ -26,7 +26,7 @@ export class TokenService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   async signAccessToken(params: {
     userId: string;
@@ -51,7 +51,15 @@ export class TokenService {
 
     return { access_token, expires_in: this.parseExpiresIn(expiresIn) };
   }
-
+  async verifyAccessToken(token: string) {
+    try {
+      return await this.jwtService.verifyAsync(token, {
+        secret: this.configService.jwtSecret,
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid access token');
+    }
+  }
   async signRefreshToken(params: {
     userId: string;
     email: string;

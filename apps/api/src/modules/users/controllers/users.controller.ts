@@ -3,6 +3,7 @@ import { UsersService } from '../services/users.service';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { AuthService, JwtAuthGuard } from 'src/modules/auth';
 import { UpdatePhoneDto } from '../dto/update-phone.dto';
+import { User } from '../schemas/user.schema';
 
 @Controller('users')
 export class UsersController {
@@ -35,7 +36,7 @@ export class UsersController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: Partial<CreateUserDto>) {
+  update(@Param('id') id: string, @Body() updateUserDto: Partial<User>) {
     return this.usersService.update(id, updateUserDto);
   }
 

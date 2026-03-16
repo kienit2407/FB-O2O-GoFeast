@@ -6,7 +6,7 @@ import { CreateUserDto } from '../dto/create-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel('User') private userModel: Model<UserDocument>) {}
+  constructor(@InjectModel('User') private userModel: Model<UserDocument>) { }
 
   async create(createUserDto: CreateUserDto): Promise<UserDocument> {
     console.log('[UsersService.create] Creating user with data:', JSON.stringify(createUserDto, null, 2));
@@ -47,7 +47,7 @@ export class UsersService {
     return result;
   }
 
-  async update(id: string, updateUserDto: Partial<CreateUserDto>): Promise<UserDocument | null> {
+  async update(id: string, updateUserDto: Partial<User>): Promise<UserDocument | null> {
     return this.userModel.findByIdAndUpdate(id, updateUserDto, { new: true }).exec();
   }
 
