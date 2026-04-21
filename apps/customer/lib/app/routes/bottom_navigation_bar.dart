@@ -175,7 +175,7 @@ class _MainShellState extends ConsumerState<MainShell>
                 return _pages[i];
               }),
             ),
-             PromotionPopupEntry(),
+            PromotionPopupEntry(),
           ],
         ),
       ),
