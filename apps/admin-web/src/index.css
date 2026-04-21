@@ -1,0 +1,302 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* FaB-O2O Super Admin Design System
+   Primary: #EE4D2D (HSL: 9 85% 55%)
+   Professional admin dashboard with clean neutral tones
+ */
+
+@layer base {
+  :root {
+    /* Core brand color - FaB Orange */
+    --primary: 9 85% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Backgrounds */
+    --background: 220 14% 96%;
+    --foreground: 222 47% 11%;
+
+    /* Cards & Surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Secondary - Subtle blue-gray */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* Muted surfaces */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    /* Accent - Light orange tint */
+    --accent: 9 85% 97%;
+    --accent-foreground: 9 85% 40%;
+
+    /* Semantic colors */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Borders & Inputs */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 9 85% 55%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar - Dark professional */
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 9 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 47% 16%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 222 47% 18%;
+    --sidebar-ring: 9 85% 55%;
+    --sidebar-muted: 220 9% 46%;
+
+    /* Status colors for orders/entities */
+    --status-pending: 38 92% 50%;
+    --status-active: 199 89% 48%;
+    --status-success: 142 76% 36%;
+    --status-error: 0 84% 60%;
+    --status-blocked: 0 0% 45%;
+
+    /* Chart colors */
+    --chart-1: 9 85% 55%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 142 76% 36%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 280 65% 60%;
+  }
+
+  .dark {
+    --primary: 9 85% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --background: 222 47% 8%;
+    --foreground: 220 14% 96%;
+
+    --card: 222 47% 11%;
+    --card-foreground: 220 14% 96%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 220 14% 96%;
+
+    --secondary: 222 47% 16%;
+    --secondary-foreground: 220 14% 96%;
+
+    --muted: 222 47% 16%;
+    --muted-foreground: 220 9% 60%;
+
+    --accent: 9 85% 15%;
+    --accent-foreground: 9 85% 70%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 47% 18%;
+    --input: 222 47% 18%;
+    --ring: 9 85% 55%;
+
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 9 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 47% 12%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 222 47% 14%;
+    --sidebar-ring: 9 85% 55%;
+  }
+}
+
+#nprogress .bar {
+  background: #EE4D2D !important;
+  /* Đổi hẳn sang màu Cam cho dễ nhìn */
+  height: 3px !important;
+  z-index: 99999 !important;
+  /* Ép nó nổi lên trên cùng */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Custom scrollbar for admin dashboard */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-muted/50;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/20 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+}
+
+@layer components {
+
+  /* KPI Card styles */
+  .kpi-card {
+    @apply bg-card rounded-lg border shadow-sm p-5 transition-shadow hover:shadow-md;
+  }
+
+  .kpi-card-value {
+    @apply text-2xl font-bold text-foreground;
+  }
+
+  .kpi-card-label {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+
+  .kpi-card-trend-up {
+    @apply text-xs text-success flex items-center gap-1 mt-2;
+  }
+
+  .kpi-card-trend-down {
+    @apply text-xs text-destructive flex items-center gap-1 mt-2;
+  }
+
+  /* Status badge styles */
+  .status-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-pending {
+    @apply bg-warning/10 text-warning;
+  }
+
+  .status-approved,
+  .status-completed,
+  .status-active {
+    @apply bg-success/10 text-success;
+  }
+
+  .status-rejected,
+  .status-cancelled,
+  .status-blocked {
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .status-processing {
+    @apply bg-info/10 text-info;
+  }
+
+  /* Admin table styles */
+  .admin-table {
+    @apply w-full text-sm;
+  }
+
+  .admin-table th {
+    @apply text-left font-medium text-muted-foreground py-3 px-4 bg-muted/50 first:rounded-tl-lg last:rounded-tr-lg;
+  }
+
+  .admin-table td {
+    @apply py-3 px-4 border-b border-border;
+  }
+
+  .admin-table tr:hover td {
+    @apply bg-muted/30;
+  }
+
+  /* Alert panel */
+  .alert-item {
+    @apply flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors cursor-pointer;
+  }
+
+  .alert-critical {
+    @apply border-l-4 border-l-destructive;
+  }
+
+  .alert-warning {
+    @apply border-l-4 border-l-warning;
+  }
+
+  .alert-info {
+    @apply border-l-4 border-l-info;
+  }
+}
+
+@layer utilities {
+
+  /* Gradient utilities */
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(9 85% 55%) 0%, hsl(9 85% 45%) 100%);
+  }
+
+  .gradient-card {
+    background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(220 14% 98%) 100%);
+  }
+
+  /* Shimmer animation for loading */
+  .shimmer {
+    background: linear-gradient(90deg,
+        hsl(var(--muted)) 0%,
+        hsl(220 14% 92%) 50%,
+        hsl(var(--muted)) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Pulse for realtime indicators */
+  .pulse-live {
+    @apply relative;
+  }
+
+  .pulse-live::before {
+    content: '';
+    @apply absolute -left-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-success;
+    animation: pulse-live 2s infinite;
+  }
+
+  @keyframes pulse-live {
+
+    0%,
+    100% {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+
+    50% {
+      opacity: 0.5;
+      transform: translateY(-50%) scale(1.2);
+    }
+  }
+}
