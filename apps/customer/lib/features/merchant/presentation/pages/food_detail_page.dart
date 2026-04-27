@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/core/utils/checkout_delivery_draft_mapper.dart';
@@ -28,6 +31,18 @@ import 'package:go_router/go_router.dart';
 import 'package:iconsax_flutter/iconsax_flutter.dart';
 
 enum FoodDetailViewMode { delivery, dineIn }
+
+Offset _globalCenterOf(BuildContext context) {
+  final render = context.findRenderObject();
+  if (render is! RenderBox || !render.hasSize) return Offset.zero;
+  return render.localToGlobal(render.size.center(Offset.zero));
+}
+
+Offset _globalCenterOfKey(GlobalKey key) {
+  final context = key.currentContext;
+  if (context == null) return Offset.zero;
+  return _globalCenterOf(context);
+}
 
 class FoodDetailPage extends ConsumerStatefulWidget {
   const FoodDetailPage.delivery({
@@ -60,10 +75,13 @@ class FoodDetailPage extends ConsumerStatefulWidget {
   ConsumerState<FoodDetailPage> createState() => _FoodDetailPageState();
 }
 
-class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
+class _FoodDetailPageState extends ConsumerState<FoodDetailPage>
+    with TickerProviderStateMixin {
   late final FoodDetailParams _params;
   late final PageController _pageCtrl;
   late final ScrollController _scrollCtrl;
+  late final AnimationController _cartShakeCtrl;
+  final GlobalKey _cartIconKey = GlobalKey();
   late String? _cartMerchantId;
   ProviderSubscription? _detailSub;
   bool _openingCheckout = false;
@@ -83,6 +101,10 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
     _cartMerchantId = widget.merchantId;
     _pageCtrl = PageController();
     _scrollCtrl = ScrollController()..addListener(_onScrollLoadMore);
+    _cartShakeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
 
     if (widget.mode == FoodDetailViewMode.dineIn) {
       ref.read(
@@ -130,6 +152,7 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
     _scrollCtrl.removeListener(_onScrollLoadMore);
     _scrollCtrl.dispose();
     _pageCtrl.dispose();
+    _cartShakeCtrl.dispose();
     super.dispose();
   }
 
@@ -336,22 +359,34 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
     }
   }
 
-  Future<void> _onAddPressed() async {
+  Future<bool> _onAddPressed({
+    Offset? animationOrigin,
+    String? animationImageUrl,
+  }) async {
     final st = ref.read(foodDetailProvider(_params));
     final detail = st.detail;
-    if (detail == null) return;
+    if (detail == null) return false;
 
     final merchantId = detail.product.merchantId;
 
     if (widget.mode == FoodDetailViewMode.delivery &&
         !await _ensureLoggedIn()) {
-      return;
+      return false;
     }
 
     final cartParams = _cartParams;
     final cartCtrl = ref.read(cartProvider(cartParams).notifier);
 
     if (!detail.product.hasOptions) {
+      if (animationOrigin != null) {
+        unawaited(
+          _playAddToCartAnimation(
+            origin: animationOrigin,
+            imageUrl: animationImageUrl,
+          ),
+        );
+      }
+
       await cartCtrl.addProduct(
         productId: detail.product.id,
         quantity: 1,
@@ -368,7 +403,7 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
       } else {
         HapticFeedback.lightImpact();
       }
-      return;
+      return err == null;
     }
 
     final mdProduct = MerchantDetailProductItem(
@@ -406,7 +441,16 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
       ),
     );
 
-    if (draft == null) return;
+    if (draft == null) return false;
+
+    if (animationOrigin != null) {
+      unawaited(
+        _playAddToCartAnimation(
+          origin: animationOrigin,
+          imageUrl: animationImageUrl,
+        ),
+      );
+    }
 
     final selectedOptions = draft.selectedOptions
         .map<Map<String, String>>(
@@ -437,6 +481,126 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
     } else {
       HapticFeedback.lightImpact();
     }
+    return err == null;
+  }
+
+  Future<void> _handleAddPressed(Offset origin) async {
+    final st = ref.read(foodDetailProvider(_params));
+    final imageUrls = st.detail?.product.images
+        .map((x) => x.url)
+        .where((url) => url.isNotEmpty)
+        .toList();
+    final imageUrl = imageUrls == null || imageUrls.isEmpty
+        ? null
+        : imageUrls.first;
+
+    await _onAddPressed(animationOrigin: origin, animationImageUrl: imageUrl);
+  }
+
+  Future<void> _playAddToCartAnimation({
+    required Offset origin,
+    String? imageUrl,
+  }) async {
+    await WidgetsBinding.instance.endOfFrame;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    final overlay =
+        Navigator.of(context, rootNavigator: true).overlay ??
+        Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final overlayRender = overlay.context.findRenderObject();
+    if (overlayRender is! RenderBox || !overlayRender.hasSize) return;
+
+    final start = overlayRender.globalToLocal(origin);
+    var target = overlayRender.globalToLocal(
+      _cartIconCenter() ?? _fallbackCartTarget(),
+    );
+    if ((target - start).distance < 8) {
+      target = overlayRender.globalToLocal(_fallbackCartTarget());
+    }
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 760),
+    );
+    final curved = CurvedAnimation(parent: controller, curve: Curves.easeInOut);
+    final scale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 1.0,
+          end: 0.72,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 0.72,
+          end: 0.24,
+        ).chain(CurveTween(curve: Curves.easeInCubic)),
+        weight: 70,
+      ),
+    ]).animate(controller);
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) {
+        return IgnorePointer(
+          child: SizedBox.expand(
+            child: AnimatedBuilder(
+              animation: controller,
+              builder: (_, __) {
+                final t = curved.value;
+                final control = Offset(
+                  (start.dx + target.dx) / 2,
+                  math.min(start.dy, target.dy) - 120,
+                );
+                final p0 = Offset.lerp(start, control, t)!;
+                final p1 = Offset.lerp(control, target, t)!;
+                final pos = Offset.lerp(p0, p1, t)!;
+
+                return Stack(
+                  children: [
+                    Positioned(
+                      left: pos.dx - 12.5,
+                      top: pos.dy - 12.5,
+                      child: Opacity(
+                        opacity: 1 - Curves.easeIn.transform(t) * 0.18,
+                        child: Transform.scale(
+                          scale: scale.value,
+                          child: _FlyingCartDot(imageUrl: imageUrl),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(milliseconds: 520), () {
+      if (mounted) _cartShakeCtrl.forward(from: 0);
+    });
+    await controller.forward();
+    entry.remove();
+    controller.dispose();
+  }
+
+  Offset? _cartIconCenter() {
+    final ctx = _cartIconKey.currentContext;
+    final render = ctx?.findRenderObject();
+    if (render is! RenderBox || !render.hasSize) return null;
+    return render.localToGlobal(render.size.center(Offset.zero));
+  }
+
+  Offset _fallbackCartTarget() {
+    final size = MediaQuery.sizeOf(context);
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return Offset(28, size.height - bottom - 32);
   }
 
   Future<void> _openProductReviewEditor({ProductReviewItem? existing}) async {
@@ -583,6 +747,8 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
               params: _cartParams,
               mode: widget.mode,
               dineInContext: widget.dineInContext,
+              cartIconKey: _cartIconKey,
+              shakeAnimation: _cartShakeCtrl,
               onCheckout: _goToCheckout,
               onLeaveTable: widget.mode == FoodDetailViewMode.dineIn
                   ? _leaveTable
@@ -650,7 +816,7 @@ class _FoodDetailPageState extends ConsumerState<FoodDetailPage> {
                           soldCount: p.totalSold,
                           reviewsCount: p.totalReviews,
                           limitText: '1 phần/đơn',
-                          onAddPressed: _onAddPressed,
+                          onAddPressed: _handleAddPressed,
                         ),
                         const SizedBox(height: 8),
                         const Divider(height: 1, color: Colors.black12),
@@ -930,6 +1096,8 @@ class _FoodCartBar extends ConsumerWidget {
   const _FoodCartBar({
     required this.params,
     required this.mode,
+    required this.cartIconKey,
+    required this.shakeAnimation,
     required this.onCheckout,
     required this.loading,
     this.dineInContext,
@@ -938,6 +1106,8 @@ class _FoodCartBar extends ConsumerWidget {
 
   final CartParams params;
   final FoodDetailViewMode mode;
+  final GlobalKey cartIconKey;
+  final Animation<double> shakeAnimation;
   final DineInContext? dineInContext;
   final Future<void> Function() onCheckout;
   final Future<void> Function()? onLeaveTable;
@@ -1017,37 +1187,52 @@ class _FoodCartBar extends ConsumerWidget {
                 padding: EdgeInsets.fromLTRB(14, 10, 14, paddingBottom),
                 child: Row(
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        const Icon(
-                          Iconsax.bag,
-                          size: 26,
-                          color: Color(0xFFEE4D2D),
-                        ),
-                        Positioned(
-                          right: -13,
-                          top: -13,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEE4D2D),
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: Text(
-                              s.itemCount.toString(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 11,
+                    AnimatedBuilder(
+                      animation: shakeAnimation,
+                      builder: (context, child) {
+                        final t = shakeAnimation.value;
+                        final dx = math.sin(t * math.pi * 8) * (1 - t) * 4;
+                        final angle =
+                            math.sin(t * math.pi * 7) * (1 - t) * 0.16;
+
+                        return Transform.translate(
+                          offset: Offset(dx, 0),
+                          child: Transform.rotate(angle: angle, child: child),
+                        );
+                      },
+                      child: Stack(
+                        key: cartIconKey,
+                        clipBehavior: Clip.none,
+                        children: [
+                          const Icon(
+                            Iconsax.bag,
+                            size: 26,
+                            color: Color(0xFFEE4D2D),
+                          ),
+                          Positioned(
+                            right: -13,
+                            top: -13,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEE4D2D),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                              child: Text(
+                                s.itemCount.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const Spacer(),
                     Row(
@@ -1148,6 +1333,74 @@ class _FoodCartBar extends ConsumerWidget {
         );
       },
       child: visible ? bar() : const SizedBox(key: ValueKey('empty')),
+    );
+  }
+}
+
+class _FlyingCartDot extends StatelessWidget {
+  const _FlyingCartDot({this.imageUrl});
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl;
+
+    final dotChild = url == null || url.isEmpty
+        ? const ColoredBox(
+            color: Color(0xFFEE4D2D),
+            child: Center(
+              child: Icon(
+                Icons.shopping_bag_outlined,
+                color: Colors.white,
+                size: 13,
+              ),
+            ),
+          )
+        : CachedNetworkImage(
+            imageUrl: url,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => const ColoredBox(
+              color: Color(0xFFEE4D2D),
+              child: Center(
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Colors.white,
+                  size: 13,
+                ),
+              ),
+            ),
+            errorWidget: (_, __, ___) => const ColoredBox(
+              color: Color(0xFFEE4D2D),
+              child: Center(
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Colors.white,
+                  size: 13,
+                ),
+              ),
+            ),
+          );
+
+    return Container(
+      width: 25,
+      height: 25,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEE4D2D),
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFEE4D2D).withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: ClipOval(child: SizedBox.expand(child: dotChild)),
+      ),
     );
   }
 }
@@ -1275,7 +1528,7 @@ class _PriceTitleSection extends StatelessWidget {
   final int soldCount;
   final int reviewsCount;
   final String limitText;
-  final VoidCallback? onAddPressed;
+  final ValueChanged<Offset>? onAddPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1315,7 +1568,11 @@ class _PriceTitleSection extends StatelessWidget {
                   ),
                 ),
               const Spacer(),
-              _AddSquareButton(onTap: onAddPressed),
+              _AddSquareButton(
+                onTap: onAddPressed == null
+                    ? null
+                    : (origin) => onAddPressed!(origin),
+              ),
             ],
           ),
           if (originalPrice != null)
@@ -1590,20 +1847,25 @@ class _CircleIcon extends StatelessWidget {
 class _AddSquareButton extends StatelessWidget {
   const _AddSquareButton({this.onTap});
 
-  final VoidCallback? onTap;
+  final ValueChanged<Offset>? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final buttonKey = GlobalKey();
+
     return Material(
       color: const Color(0xFFEE4D2D),
       borderRadius: BorderRadius.circular(5),
       child: InkWell(
-        onTap: onTap,
+        onTap: onTap == null
+            ? null
+            : () => onTap!(_globalCenterOfKey(buttonKey)),
         borderRadius: BorderRadius.circular(5),
-        child: const SizedBox(
+        child: SizedBox(
+          key: buttonKey,
           width: 25,
           height: 25,
-          child: Icon(Icons.add, color: Colors.white, size: 14),
+          child: const Icon(Icons.add, color: Colors.white, size: 14),
         ),
       ),
     );

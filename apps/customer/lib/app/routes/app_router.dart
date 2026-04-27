@@ -14,7 +14,6 @@ import 'package:customer/features/merchant/presentation/pages/merchant_detail_pa
 import 'package:customer/features/orders/data/models/checkout_delivery_draft.dart';
 import 'package:customer/features/orders/data/models/checkout_models.dart';
 import 'package:customer/features/orders/presentation/pages/checkout_page.dart';
-import 'package:customer/features/orders/presentation/pages/my_orders_page.dart';
 import 'package:customer/features/orders/presentation/pages/my_reviews_page.dart';
 import 'package:customer/features/orders/presentation/pages/order_detail_page.dart';
 import 'package:customer/features/orders/presentation/pages/result_page.dart';
@@ -283,7 +282,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return ResultPage(args: args);
         },
       ),
-      GoRoute(path: '/orders', builder: (_, __) => const MyOrdersPage()),
+      GoRoute(
+        path: '/orders',
+        builder: (_, __) => const MainShell(initialIndex: 1),
+      ),
       GoRoute(
         path: '/orders/:id',
         builder: (context, state) {

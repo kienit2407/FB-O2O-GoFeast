@@ -250,6 +250,41 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
 
         return order.payment_status === PaymentStatus.PAID;
     }
+
+    private getLastDispatchMarker(order: any): string | null {
+        const history = Array.isArray(order?.status_history) ? order.status_history : [];
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const status = String(history[i]?.status ?? '');
+            if (
+                status === 'dispatch_searching' ||
+                status === 'dispatch_retrying' ||
+                status === 'dispatch_expired'
+            ) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private canCustomerCancelOrder(order: any) {
+        if (!order) return false;
+        if (order.driver_id) return false;
+        if ([OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order.status)) {
+            return false;
+        }
+
+        if (order.status === OrderStatus.PENDING) return true;
+
+        if (order.order_type !== OrderType.DELIVERY) return false;
+
+        const marker = this.getLastDispatchMarker(order);
+        return (
+            marker === 'dispatch_searching' ||
+            marker === 'dispatch_retrying' ||
+            marker === 'dispatch_expired'
+        );
+    }
+
     private getOrderPreviewImage(order: any): string | null {
         const items = Array.isArray(order?.items) ? order.items : [];
 
@@ -1589,12 +1624,11 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             throw new BadRequestException('Order does not belong to customer');
         }
 
-        if (order.status !== OrderStatus.PENDING) {
-            throw new BadRequestException('Only pending order can be cancelled');
-        }
-
-        if (order.driver_id) {
-            throw new BadRequestException('Order already has driver assigned');
+        if (!this.canCustomerCancelOrder(order)) {
+            if (order.driver_id) {
+                throw new BadRequestException('Order already has driver assigned');
+            }
+            throw new BadRequestException('Order cannot be cancelled at this stage');
         }
 
         order.status = OrderStatus.CANCELLED;

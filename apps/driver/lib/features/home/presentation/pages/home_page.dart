@@ -7,7 +7,6 @@ import 'package:driver/features/drivers/presentation/viewmodels/driver_delivery_
 import 'package:driver/features/drivers/presentation/viewmodels/driver_offer_controller.dart';
 import 'package:driver/features/drivers/presentation/widgets/driver_current_job_sheet.dart';
 import 'package:driver/features/drivers/presentation/widgets/driver_offer_bottom_sheet.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -199,7 +198,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _appendUploadedProofs(List<File> files) async {
     if (files.isEmpty) return;
 
+    _trackingCtrl.setBusy(true);
     final urls = await _uploadProofFiles(files);
+    _trackingCtrl.setBusy(false);
     if (urls.isEmpty) return;
 
     final current = ref
@@ -211,21 +212,24 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<File?> _takePhotoFromCamera() async {
     final picked = await _picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 90,
+      imageQuality: 75,
+      maxWidth: 1600,
+      maxHeight: 1600,
     );
     if (picked == null) return null;
     return File(picked.path);
   }
 
   Future<List<File>> _pickManyImagesFromLibrary() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: true,
+    final result = await _picker.pickMultiImage(
+      imageQuality: 75,
+      maxWidth: 1600,
+      maxHeight: 1600,
     );
 
-    if (result == null || result.files.isEmpty) return [];
+    if (result.isEmpty) return [];
 
-    return result.paths.whereType<String>().map((path) => File(path)).toList();
+    return result.map((file) => File(file.path)).toList();
   }
 
   Future<void> _takeFirstProofPhoto() async {
@@ -697,8 +701,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildStatusChip(bool isOnline) {
     final bg = isOnline
-        ? AppColor.success.withOpacity(.12)
-        : AppColor.warning.withOpacity(.12);
+        ? AppColor.success.withValues(alpha: .12)
+        : AppColor.warning.withValues(alpha: .12);
     final fg = isOnline ? AppColor.success : AppColor.warning;
 
     return _buildInfoChip(
@@ -718,7 +722,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
       elevation: 4,
-      shadowColor: Colors.black.withOpacity(.08),
+      shadowColor: Colors.black.withValues(alpha: .08),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -812,10 +816,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withOpacity(.10),
+                      Colors.black.withValues(alpha: .10),
                       Colors.transparent,
                       Colors.transparent,
-                      Colors.black.withOpacity(.04),
+                      Colors.black.withValues(alpha: .04),
                     ],
                     stops: const [0, 0.18, 0.72, 1],
                   ),
@@ -843,7 +847,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                           BoxShadow(
                             blurRadius: 24,
                             offset: const Offset(0, 10),
-                            color: Colors.black.withOpacity(.08),
+                            color: Colors.black.withValues(alpha: .08),
                           ),
                         ],
                       ),
@@ -970,7 +974,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     BoxShadow(
                       blurRadius: 16,
                       offset: const Offset(0, 8),
-                      color: Colors.black.withOpacity(.08),
+                      color: Colors.black.withValues(alpha: .08),
                     ),
                   ],
                 ),

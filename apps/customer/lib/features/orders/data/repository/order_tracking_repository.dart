@@ -51,6 +51,7 @@ class TrackingOrder {
   final String status;
   final String orderType;
   final bool driverAssigned;
+  final bool canCancel;
   final int? etaMin;
   final String? etaAt;
   final TrackingParty merchant;
@@ -63,6 +64,7 @@ class TrackingOrder {
     required this.status,
     required this.orderType,
     required this.driverAssigned,
+    required this.canCancel,
     required this.merchant,
     required this.delivery,
     this.driver,
@@ -70,7 +72,6 @@ class TrackingOrder {
     this.etaAt,
   });
 
-  bool get canCancel => status == 'pending' && !driverAssigned;
   bool get isDineIn => orderType == 'dine_in';
 
   factory TrackingOrder.fromJson(Map<String, dynamic> j) {
@@ -80,6 +81,9 @@ class TrackingOrder {
       status: (j['status'] ?? '').toString(),
       orderType: (j['order_type'] ?? 'delivery').toString(),
       driverAssigned: j['driver_assigned'] == true,
+      canCancel:
+          ((j['actions'] as Map?)?['can_cancel'] == true) ||
+          ((j['can_cancel'] == true)),
       etaMin: (j['eta_min'] as num?)?.toInt(),
       etaAt: j['eta_at']?.toString(),
       merchant: TrackingParty.fromJson(

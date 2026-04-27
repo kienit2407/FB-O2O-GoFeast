@@ -3,7 +3,9 @@ import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
 import 'package:customer/features/orders/data/models/customer_order_detail_model.dart';
 import 'package:customer/features/orders/data/models/customer_review_models.dart';
+import 'package:customer/features/orders/presentation/pages/order_chat_page.dart';
 import 'package:customer/features/orders/presentation/viewmodels/customer_order_review_controller.dart';
+import 'package:customer/features/orders/presentation/viewmodels/order_chat_controller.dart';
 import 'package:customer/features/orders/presentation/widgets/customer_review_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -49,6 +51,9 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     try {
       final repo = ref.read(myOrdersRepositoryProvider);
       final data = await repo.fetchCustomerOrderDetail(widget.orderId);
+      if (data.status == 'completed' || data.status == 'cancelled') {
+        await OrderChatLocalCache.clear(data.id);
+      }
       if (!mounted) return;
       setState(() {
         _detail = data;
@@ -510,6 +515,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
         detail != null &&
         detail.status == 'completed' &&
         detail.items.any((e) => (e.productId ?? '').isNotEmpty);
+    final canChat =
+        detail != null &&
+        detail.orderType == 'delivery' &&
+        detail.driver != null &&
+        !['completed', 'cancelled'].contains(detail.status.toLowerCase());
 
     final timelineItems = detail?.statusHistory ?? const [];
     final displayedTimeline = _timelineExpanded || timelineItems.length <= 3
@@ -978,23 +988,51 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
             ),
       floatingActionButton: detail == null
           ? null
-          : FloatingActionButton.small(
-              heroTag: 'copy_order_number',
-              backgroundColor: Colors.white,
-              onPressed: () async {
-                await Clipboard.setData(
-                  ClipboardData(text: detail.orderNumber),
-                );
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã sao chép mã đơn')),
-                );
-              },
-              child: const Icon(
-                Icons.copy,
-                color: AppColor.textPrimary,
-                size: 20,
-              ),
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (canChat) ...[
+                  FloatingActionButton.small(
+                    heroTag: 'open_order_chat',
+                    backgroundColor: AppColor.primary,
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => OrderChatPage(
+                            orderId: detail.id,
+                            orderNumber: detail.orderNumber,
+                            peerName: detail.driver?.fullName,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                FloatingActionButton.small(
+                  heroTag: 'copy_order_number',
+                  backgroundColor: Colors.white,
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: detail.orderNumber),
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Đã sao chép mã đơn')),
+                    );
+                  },
+                  child: const Icon(
+                    Icons.copy,
+                    color: AppColor.textPrimary,
+                    size: 20,
+                  ),
+                ),
+              ],
             ),
     );
   }

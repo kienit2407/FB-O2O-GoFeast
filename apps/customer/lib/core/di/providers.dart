@@ -50,6 +50,7 @@ import 'package:customer/features/orders/presentation/viewmodels/checkout_state.
 import 'package:customer/features/orders/presentation/viewmodels/my_orders_controller.dart';
 import 'package:customer/features/orders/presentation/viewmodels/my_orders_state.dart';
 import 'package:customer/features/orders/presentation/viewmodels/order_tracking_controller.dart';
+import 'package:customer/features/orders/presentation/viewmodels/order_chat_controller.dart';
 import 'package:customer/features/profile/data/repository/user_profile_repository.dart';
 import 'package:customer/features/profile/presentation/viewmodels/user_profile_controller.dart';
 import 'package:customer/features/profile/presentation/viewmodels/user_profile_state.dart';
@@ -59,7 +60,8 @@ import 'package:customer/features/promotion/presentation/viewmodels/promotion_de
 import 'package:customer/features/promotion/presentation/viewmodels/promotion_detail_state.dart';
 import 'package:customer/features/search/data/repository/search_history_repository.dart';
 import 'package:customer/features/search/data/repository/search_repository.dart';
-import 'package:customer/features/search/presentation/viewmodels/search_state.dart' show SearchState;
+import 'package:customer/features/search/presentation/viewmodels/search_state.dart'
+    show SearchState;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:customer/features/search/presentation/viewmodels/search_controller.dart';
@@ -322,6 +324,12 @@ final orderTrackingControllerProvider =
       return OrderTrackingController(repository: repo, socketService: socket);
     });
 
+final customerOrderChatControllerProvider = StateNotifierProvider.autoDispose
+    .family<OrderChatController, OrderChatState, String>((ref, orderId) {
+      final socket = ref.read(customerSocketServiceProvider);
+      return OrderChatController(orderId: orderId, socketService: socket);
+    });
+
 final myOrdersRepositoryProvider = Provider<MyOrdersRepository>((ref) {
   final dio = ref.watch(dioClientProvider);
   return MyOrdersRepository(dio);
@@ -442,8 +450,9 @@ final userProfileControllerProvider =
       );
     });
 
-
-final searchHistoryRepositoryProvider = Provider<SearchHistoryRepository>((ref) {
+final searchHistoryRepositoryProvider = Provider<SearchHistoryRepository>((
+  ref,
+) {
   return SearchHistoryRepository();
 });
 
@@ -452,13 +461,15 @@ final searchRepositoryProvider = Provider<SearchRepository>((ref) {
 });
 
 final searchControllerProvider =
-    StateNotifierProvider.autoDispose<SearchProductController, SearchState>((ref) {
-  return SearchProductController(
-    ref.read(searchRepositoryProvider),
-    ref.read(searchHistoryRepositoryProvider),
-    ref,
-  );
-});
+    StateNotifierProvider.autoDispose<SearchProductController, SearchState>((
+      ref,
+    ) {
+      return SearchProductController(
+        ref.read(searchRepositoryProvider),
+        ref.read(searchHistoryRepositoryProvider),
+        ref,
+      );
+    });
 //===================================================================================
 //===================================================================================
 /// Bootstrap theo kiểu DI chuẩn:

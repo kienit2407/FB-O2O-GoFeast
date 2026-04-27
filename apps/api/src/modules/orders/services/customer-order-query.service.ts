@@ -116,6 +116,24 @@ export class CustomerOrderQueryService {
         return null;
     }
 
+    private canCustomerCancelOrder(order: any) {
+        if (!order) return false;
+        if (order.driver_id) return false;
+        if ([OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order.status)) {
+            return false;
+        }
+
+        if (order.status === OrderStatus.PENDING) return true;
+        if (order.order_type !== OrderType.DELIVERY) return false;
+
+        const marker = this.getLastDispatchMarker(order);
+        return (
+            marker === 'dispatch_searching' ||
+            marker === 'dispatch_retrying' ||
+            marker === 'dispatch_expired'
+        );
+    }
+
     private displayStatus(order: any) {
         if (
             order?.order_type === OrderType.DELIVERY &&
@@ -217,7 +235,7 @@ export class CustomerOrderQueryService {
             },
             items_preview: this.buildItemsPreview(order.items),
             actions: {
-                can_cancel: order.status === OrderStatus.PENDING,
+                can_cancel: this.canCustomerCancelOrder(order),
                 can_open_detail: true,
             },
         };
@@ -484,7 +502,7 @@ export class CustomerOrderQueryService {
                 note: x.note ?? null,
             })),
             actions: {
-                can_cancel: order.status === OrderStatus.PENDING,
+                can_cancel: this.canCustomerCancelOrder(order),
                 can_review_merchant: order.status === OrderStatus.COMPLETED,
                 can_review_driver:
                     order.status === OrderStatus.COMPLETED && !!order.driver_id,

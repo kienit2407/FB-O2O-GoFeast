@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:customer/app/theme/app_color.dart';
 import 'package:customer/core/di/providers.dart';
@@ -44,6 +45,18 @@ String money(num v) {
   return '${s.replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}đ';
 }
 
+Offset _globalCenterOf(BuildContext context) {
+  final render = context.findRenderObject();
+  if (render is! RenderBox || !render.hasSize) return Offset.zero;
+  return render.localToGlobal(render.size.center(Offset.zero));
+}
+
+Offset _globalCenterOfKey(GlobalKey key) {
+  final context = key.currentContext;
+  if (context == null) return Offset.zero;
+  return _globalCenterOf(context);
+}
+
 enum MerchantViewMode { delivery, dineIn }
 
 class MerchantDetailPage extends ConsumerStatefulWidget {
@@ -77,10 +90,12 @@ class MerchantDetailPage extends ConsumerStatefulWidget {
 class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     with TickerProviderStateMixin {
   TabController? _tabCtrl;
+  late final AnimationController _cartShakeCtrl;
 
   final List<_MenuEntry> _entries = [];
   final List<int> _headerIndexBySection = [];
   final ScrollController _scrollCtrl = ScrollController();
+  final GlobalKey _cartIconKey = GlobalKey();
 
   final List<GlobalKey> _sectionHeaderKeys = [];
   bool _openingCheckout = false;
@@ -97,6 +112,10 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
   @override
   void initState() {
     super.initState();
+    _cartShakeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
     _scrollCtrl.addListener(_onScrollSyncTab);
   }
 
@@ -107,6 +126,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     _scrollCtrl.removeListener(_onScrollSyncTab);
     _scrollCtrl.dispose();
     _tabCtrl?.dispose();
+    _cartShakeCtrl.dispose();
     super.dispose();
   }
 
@@ -400,11 +420,23 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     }
   }
 
-  Future<void> _onAddPressed(MerchantDetailProductItem p) async {
+  Future<bool> _onAddPressed(
+    MerchantDetailProductItem p, {
+    Offset? animationOrigin,
+  }) async {
     if (widget.mode == MerchantViewMode.delivery && !await _ensureLoggedIn()) {
-      return;
+      return false;
     }
     if (!p.hasOptions) {
+      if (animationOrigin != null) {
+        unawaited(
+          _playAddToCartAnimation(
+            origin: animationOrigin,
+            imageUrl: _addAnimationImageUrl(p),
+          ),
+        );
+      }
+
       await _cartCtrl.addProduct(
         productId: p.id,
         quantity: 1,
@@ -421,7 +453,7 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
       } else {
         HapticFeedback.lightImpact();
       }
-      return;
+      return err == null;
     }
 
     //  2) product có option => mở bottom sheet lấy draft rồi add
@@ -434,7 +466,16 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
           ProductOptionBottomSheet(merchantId: widget.merchantId, product: p),
     );
 
-    if (draft == null) return;
+    if (draft == null) return false;
+
+    if (animationOrigin != null) {
+      unawaited(
+        _playAddToCartAnimation(
+          origin: animationOrigin,
+          imageUrl: _addAnimationImageUrl(p),
+        ),
+      );
+    }
 
     final selectedOptions = draft.selectedOptions
         .map<Map<String, String>>(
@@ -468,11 +509,24 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     } else {
       HapticFeedback.lightImpact();
     }
+    return err == null;
   }
 
-  Future<void> _onAddToppingStandalone(MerchantDetailToppingItem t) async {
+  Future<bool> _onAddToppingStandalone(
+    MerchantDetailToppingItem t, {
+    Offset? animationOrigin,
+  }) async {
     if (widget.mode == MerchantViewMode.delivery && !await _ensureLoggedIn()) {
-      return;
+      return false;
+    }
+
+    if (animationOrigin != null) {
+      unawaited(
+        _playAddToCartAnimation(
+          origin: animationOrigin,
+          imageUrl: _addAnimationImageUrl(t),
+        ),
+      );
     }
 
     await _cartCtrl.addToppingStandalone(toppingId: t.id, quantity: 1);
@@ -483,6 +537,134 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
     } else {
       HapticFeedback.lightImpact();
     }
+    return err == null;
+  }
+
+  Future<void> _handleQuickAdd(
+    MerchantDetailSectionItem item,
+    Offset origin,
+  ) async {
+    if (item is MerchantDetailProductItem) {
+      await _onAddPressed(item, animationOrigin: origin);
+      return;
+    }
+
+    await _onAddToppingStandalone(
+      item as MerchantDetailToppingItem,
+      animationOrigin: origin,
+    );
+  }
+
+  String? _addAnimationImageUrl(MerchantDetailSectionItem item) {
+    if (item is MerchantDetailProductItem) return item.cover;
+    if (item is MerchantDetailToppingItem) return item.image_url;
+    return null;
+  }
+
+  Future<void> _playAddToCartAnimation({
+    required Offset origin,
+    String? imageUrl,
+  }) async {
+    await WidgetsBinding.instance.endOfFrame;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    final overlay =
+        Navigator.of(context, rootNavigator: true).overlay ??
+        Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+
+    final overlayRender = overlay.context.findRenderObject();
+    if (overlayRender is! RenderBox || !overlayRender.hasSize) return;
+
+    final start = overlayRender.globalToLocal(origin);
+    var target = overlayRender.globalToLocal(
+      _cartIconCenter() ?? _fallbackCartTarget(),
+    );
+    if ((target - start).distance < 8) {
+      target = overlayRender.globalToLocal(_fallbackCartTarget());
+    }
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 760),
+    );
+    final curved = CurvedAnimation(parent: controller, curve: Curves.easeInOut);
+    final scale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 1.0,
+          end: 0.72,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween(
+          begin: 0.72,
+          end: 0.24,
+        ).chain(CurveTween(curve: Curves.easeInCubic)),
+        weight: 70,
+      ),
+    ]).animate(controller);
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) {
+        return IgnorePointer(
+          child: SizedBox.expand(
+            child: AnimatedBuilder(
+              animation: controller,
+              builder: (_, __) {
+                final t = curved.value;
+                final control = Offset(
+                  (start.dx + target.dx) / 2,
+                  math.min(start.dy, target.dy) - 120,
+                );
+                final p0 = Offset.lerp(start, control, t)!;
+                final p1 = Offset.lerp(control, target, t)!;
+                final pos = Offset.lerp(p0, p1, t)!;
+
+                return Stack(
+                  children: [
+                    Positioned(
+                      left: pos.dx - 12.5,
+                      top: pos.dy - 12.5,
+                      child: Opacity(
+                        opacity: 1 - Curves.easeIn.transform(t) * 0.18,
+                        child: Transform.scale(
+                          scale: scale.value,
+                          child: _FlyingCartDot(imageUrl: imageUrl),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(milliseconds: 520), () {
+      if (mounted) _cartShakeCtrl.forward(from: 0);
+    });
+    await controller.forward();
+    entry.remove();
+    controller.dispose();
+  }
+
+  Offset? _cartIconCenter() {
+    final ctx = _cartIconKey.currentContext;
+    final render = ctx?.findRenderObject();
+    if (render is! RenderBox || !render.hasSize) return null;
+    return render.localToGlobal(render.size.center(Offset.zero));
+  }
+
+  Offset _fallbackCartTarget() {
+    final size = MediaQuery.sizeOf(context);
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    return Offset(28, size.height - bottom - 32);
   }
 
   void _onTapTab(int tabIndex) {
@@ -814,6 +996,8 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
         params: cartParams,
         mode: widget.mode,
         dineInContext: widget.dineInContext,
+        cartIconKey: _cartIconKey,
+        shakeAnimation: _cartShakeCtrl,
         onCheckout: _goToCheckout,
         onLeaveTable: widget.mode == MerchantViewMode.dineIn
             ? _leaveTable
@@ -942,12 +1126,8 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                       }
                     }
                   },
-                  onAdd: (it) {
-                    if (it is MerchantDetailProductItem) {
-                      unawaited(_onAddPressed(it));
-                    } else if (it is MerchantDetailToppingItem) {
-                      unawaited(_onAddToppingStandalone(it));
-                    }
+                  onAdd: (it, origin) {
+                    unawaited(_handleQuickAdd(it, origin));
                   },
                 );
               }, childCount: _entries.length),
@@ -1580,12 +1760,8 @@ class _MerchantDetailPageState extends ConsumerState<MerchantDetailPage>
                     },
                   );
                 },
-                onAdd: (it) {
-                  if (it is MerchantDetailProductItem) {
-                    _onAddPressed(it); //  truyền đúng product
-                  } else if (it is MerchantDetailToppingItem) {
-                    unawaited(_onAddToppingStandalone(it));
-                  }
+                onAdd: (it, origin) {
+                  unawaited(_handleQuickAdd(it, origin));
                 },
               ),
             ),
@@ -1600,6 +1776,8 @@ class _MerchantCartBar extends ConsumerWidget {
   const _MerchantCartBar({
     required this.params,
     required this.mode,
+    required this.cartIconKey,
+    required this.shakeAnimation,
     required this.onCheckout,
     required this.loading,
     this.dineInContext,
@@ -1608,6 +1786,8 @@ class _MerchantCartBar extends ConsumerWidget {
 
   final CartParams params;
   final MerchantViewMode mode;
+  final GlobalKey cartIconKey;
+  final Animation<double> shakeAnimation;
   final DineInContext? dineInContext;
   final Future<void> Function() onCheckout;
   final Future<void> Function()? onLeaveTable;
@@ -1679,33 +1859,47 @@ class _MerchantCartBar extends ConsumerWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Iconsax.bag, size: 26, color: AppColor.primary),
-                  Positioned(
-                    right: -10,
-                    top: -10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColor.primary,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                      child: Text(
-                        s.itemCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 11,
+              AnimatedBuilder(
+                animation: shakeAnimation,
+                builder: (context, child) {
+                  final t = shakeAnimation.value;
+                  final dx = math.sin(t * math.pi * 8) * (1 - t) * 4;
+                  final angle = math.sin(t * math.pi * 7) * (1 - t) * 0.16;
+
+                  return Transform.translate(
+                    offset: Offset(dx, 0),
+                    child: Transform.rotate(angle: angle, child: child),
+                  );
+                },
+                child: Stack(
+                  key: cartIconKey,
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Icon(Iconsax.bag, size: 26, color: AppColor.primary),
+                    Positioned(
+                      right: -10,
+                      top: -10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColor.primary,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                        child: Text(
+                          s.itemCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
 
               const Spacer(), //  đẩy cụm tiền+button sang phải
@@ -1790,6 +1984,74 @@ class _MerchantCartBar extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FlyingCartDot extends StatelessWidget {
+  const _FlyingCartDot({this.imageUrl});
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl;
+
+    final dotChild = url == null || url.isEmpty
+        ? const ColoredBox(
+            color: AppColor.primary,
+            child: Center(
+              child: Icon(
+                Icons.shopping_bag_outlined,
+                color: Colors.white,
+                size: 13,
+              ),
+            ),
+          )
+        : CachedNetworkImage(
+            imageUrl: url,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => const ColoredBox(
+              color: AppColor.primary,
+              child: Center(
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Colors.white,
+                  size: 13,
+                ),
+              ),
+            ),
+            errorWidget: (_, __, ___) => const ColoredBox(
+              color: AppColor.primary,
+              child: Center(
+                child: Icon(
+                  Icons.shopping_bag_outlined,
+                  color: Colors.white,
+                  size: 13,
+                ),
+              ),
+            ),
+          );
+
+    return Container(
+      width: 25,
+      height: 25,
+      decoration: BoxDecoration(
+        color: AppColor.primary,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppColor.primary.withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: ClipOval(child: SizedBox.expand(child: dotChild)),
       ),
     );
   }
@@ -2229,7 +2491,7 @@ class _MenuItemRow extends StatelessWidget {
     required this.onOpenDetail,
   });
   final MerchantDetailSectionItem item;
-  final void Function(MerchantDetailSectionItem item) onAdd;
+  final void Function(MerchantDetailSectionItem item, Offset origin) onAdd;
   final void Function(MerchantDetailSectionItem item) onOpenDetail;
 
   @override
@@ -2241,6 +2503,7 @@ class _MenuItemRow extends StatelessWidget {
       final reviews = p.reviews;
 
       final enabled = p.isAvailable;
+      final addButtonKey = GlobalKey();
 
       return Opacity(
         opacity: enabled ? 1 : 0.45,
@@ -2401,9 +2664,12 @@ class _MenuItemRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 InkWell(
-                  onTap: enabled ? () => onAdd(item) : null,
+                  onTap: enabled
+                      ? () => onAdd(item, _globalCenterOfKey(addButtonKey))
+                      : null,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
+                    key: addButtonKey,
                     width: 25,
                     height: 25,
                     decoration: BoxDecoration(
@@ -2426,7 +2692,7 @@ class _MenuItemRow extends StatelessWidget {
     final qtyLabel = (t.maxQuantity <= 1)
         ? '1 phần/đơn'
         : 'Tối đa ${t.maxQuantity}/đơn';
-
+    final addButtonKey = GlobalKey();
     return Opacity(
       opacity: enabled ? 1 : 0.45,
       child: Container(
@@ -2506,9 +2772,12 @@ class _MenuItemRow extends StatelessWidget {
             ),
             const SizedBox(width: 10),
             InkWell(
-              onTap: enabled ? () => onAdd(item) : null,
+              onTap: enabled
+                  ? () => onAdd(item, _globalCenterOfKey(addButtonKey))
+                  : null,
               borderRadius: BorderRadius.circular(12),
               child: Container(
+                key: addButtonKey,
                 width: 25,
                 height: 25,
                 decoration: BoxDecoration(
@@ -2532,7 +2801,7 @@ class _PopularCard extends StatelessWidget {
     required this.onOpenDetail,
   });
   final MerchantDetailProductItem item;
-  final void Function(MerchantDetailSectionItem item) onAdd;
+  final void Function(MerchantDetailSectionItem item, Offset origin) onAdd;
   final VoidCallback onOpenDetail;
   @override
   Widget build(BuildContext context) {
@@ -2543,6 +2812,7 @@ class _PopularCard extends StatelessWidget {
     final reviews = p.reviews;
 
     final enabled = p.isAvailable;
+    final addButtonKey = GlobalKey();
 
     return Opacity(
       opacity: enabled ? 1 : 0.45,
@@ -2703,9 +2973,12 @@ class _PopularCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               InkWell(
-                onTap: enabled ? () => onAdd(item) : null,
+                onTap: enabled
+                    ? () => onAdd(item, _globalCenterOfKey(addButtonKey))
+                    : null,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
+                  key: addButtonKey,
                   width: 25,
                   height: 25,
                   decoration: BoxDecoration(

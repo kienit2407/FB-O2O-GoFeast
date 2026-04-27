@@ -13,9 +13,11 @@ class DriverSocketEvents {
   static const offerExpired = 'driver:offer:expired';
   static const orderStatus = 'driver:order:status';
   static const notificationNew = 'driver:notification:new';
+  static const orderChatNew = 'order:chat:new';
 
   static const offerAccept = 'driver:offer:accept';
   static const offerReject = 'driver:offer:reject';
+  static const orderChatSend = 'order:chat:send';
 
   static const joinOrderRoom = 'order:room:join';
   static const leaveOrderRoom = 'order:room:leave';
@@ -41,6 +43,8 @@ class DriverSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _notificationNewController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _orderChatController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _connectionController = StreamController<bool>.broadcast();
 
   Stream<Map<String, dynamic>> get newOrderOfferStream =>
@@ -55,6 +59,8 @@ class DriverSocketService {
       _orderStatusController.stream;
   Stream<Map<String, dynamic>> get notificationNewStream =>
       _notificationNewController.stream;
+  Stream<Map<String, dynamic>> get orderChatStream =>
+      _orderChatController.stream;
   Stream<bool> get connectionStream => _connectionController.stream;
 
   io.Socket? get socket => _socket;
@@ -141,6 +147,12 @@ class DriverSocketService {
         _notificationNewController.add(Map<String, dynamic>.from(data));
       }
     });
+
+    s.on(DriverSocketEvents.orderChatNew, (data) {
+      if (data is Map) {
+        _orderChatController.add(Map<String, dynamic>.from(data));
+      }
+    });
   }
 
   Future<void> connect() async {
@@ -183,6 +195,33 @@ class DriverSocketService {
     _socket?.emit(DriverSocketEvents.leaveOrderRoom, {'orderId': orderId});
   }
 
+  Future<Map<String, dynamic>> emitOrderChatMessage({
+    required String orderId,
+    required String clientMessageId,
+    required String text,
+  }) async {
+    final s = _socket;
+    if (s == null || !s.connected) {
+      return {'ok': false, 'message': 'Socket chưa kết nối'};
+    }
+
+    final response = await s
+        .emitWithAckAsync(DriverSocketEvents.orderChatSend, {
+          'orderId': orderId,
+          'clientMessageId': clientMessageId,
+          'text': text,
+        })
+        .timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => {'ok': false, 'message': 'Gửi tin nhắn quá hạn'},
+        );
+
+    if (response is Map) {
+      return Map<String, dynamic>.from(response);
+    }
+    return {'ok': false, 'message': 'Phản hồi socket không hợp lệ'};
+  }
+
   Future<void> dispose() async {
     await _newOrderOfferController.close();
     await _offerAcceptedController.close();
@@ -190,6 +229,7 @@ class DriverSocketService {
     await _offerExpiredController.close();
     await _orderStatusController.close();
     await _notificationNewController.close();
+    await _orderChatController.close();
     await _connectionController.close();
     _socket?.dispose();
     _socket = null;

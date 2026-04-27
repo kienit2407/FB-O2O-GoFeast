@@ -307,19 +307,6 @@ export class DispatchOfferService {
             },
         );
 
-        this.gateway?.emitToCustomer(
-            offer.customerUserId,
-            RealtimeEvents.CUSTOMER_ORDER_CANCELLED,
-            {
-                orderId: offer.orderId,
-                status: 'cancelled',
-                cancelledBy: 'system',
-                reason,
-                message: 'Đơn hàng đã bị hủy',
-                updatedAt: nowIso,
-            },
-        );
-
         this.gateway?.emitToMerchant(
             offer.merchantId,
             RealtimeEvents.MERCHANT_DISPATCH_CANCELLED,

@@ -17,6 +17,7 @@ import 'package:driver/features/drivers/presentation/viewmodels/driver_delivery_
 import 'package:driver/features/drivers/presentation/viewmodels/driver_live_controller.dart';
 import 'package:driver/features/drivers/presentation/viewmodels/driver_live_state.dart';
 import 'package:driver/features/drivers/presentation/viewmodels/driver_offer_controller.dart';
+import 'package:driver/features/drivers/presentation/viewmodels/order_chat_controller.dart';
 import 'package:driver/features/earnings/data/repository/driver_earnings_repository.dart';
 import 'package:driver/features/earnings/presentation/viewmodels/driver_earnings_controller.dart';
 import 'package:driver/features/earnings/presentation/viewmodels/driver_earnings_state.dart';
@@ -126,6 +127,11 @@ final driverDeliveryTrackingControllerProvider =
         socketService: socket,
       );
     });
+final driverOrderChatControllerProvider = StateNotifierProvider.autoDispose
+    .family<OrderChatController, OrderChatState, String>((ref, orderId) {
+      final socket = ref.read(driverSocketServiceProvider);
+      return OrderChatController(orderId: orderId, socketService: socket);
+    });
 final driverEarningsRepositoryProvider = Provider<DriverEarningsRepository>((
   ref,
 ) {
@@ -153,16 +159,17 @@ final driverNotificationControllerProvider =
       final repo = ref.read(driverNotificationRepositoryProvider);
       return DriverNotificationController(repo);
     });
-final driverProfileRepositoryProvider = Provider<DriverProfileRepository>((ref) {
+final driverProfileRepositoryProvider = Provider<DriverProfileRepository>((
+  ref,
+) {
   return DriverProfileRepository(ref.read(dioClientProvider));
 });
 
 final driverProfileControllerProvider =
     StateNotifierProvider<DriverProfileController, DriverProfileState>((ref) {
-  return DriverProfileController(
-    ref.read(driverProfileRepositoryProvider),
-  );
-});
+      return DriverProfileController(ref.read(driverProfileRepositoryProvider));
+    });
+
 /// =======================
 /// BOOTSTRAP
 /// =======================

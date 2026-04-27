@@ -1,5 +1,6 @@
 import 'package:driver/app/theme/app_color.dart';
 import 'package:driver/core/di/providers.dart';
+import 'package:driver/features/drivers/presentation/pages/order_chat_page.dart';
 import 'package:driver/features/drivers/presentation/viewmodels/driver_delivery_tracking_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -116,6 +117,9 @@ class _CurrentOrderPageState extends ConsumerState<CurrentOrderPage> {
     final orderCode = state.orderNumber == null || state.orderNumber!.isEmpty
         ? (state.orderId ?? '—')
         : state.orderNumber!;
+    final canChat =
+        state.hasOrder &&
+        !['completed', 'cancelled'].contains(state.status.toLowerCase());
 
     return Scaffold(
       backgroundColor: AppColor.background,
@@ -133,6 +137,24 @@ class _CurrentOrderPageState extends ConsumerState<CurrentOrderPage> {
         elevation: 0,
         scrolledUnderElevation: 0,
         iconTheme: const IconThemeData(color: AppColor.textPrimary),
+        actions: [
+          if (canChat)
+            IconButton(
+              tooltip: 'Nhắn tin',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => OrderChatPage(
+                      orderId: state.orderId!,
+                      orderNumber: state.orderNumber,
+                      peerName: state.customerName,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+            ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),

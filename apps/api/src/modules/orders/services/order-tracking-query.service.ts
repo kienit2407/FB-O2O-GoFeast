@@ -6,7 +6,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 
-import { Order, OrderDocument } from '../schemas/order.schema';
+import { Order, OrderDocument, OrderStatus, OrderType } from '../schemas/order.schema';
 import {
     Merchant,
     MerchantDocument,
@@ -68,6 +68,39 @@ export class OrderTrackingQueryService {
             eta_at: etaAt.toISOString(),
             eta_min: etaMin,
         };
+    }
+
+    private getLastDispatchMarker(order: any): string | null {
+        const history = Array.isArray(order?.status_history) ? order.status_history : [];
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const status = String(history[i]?.status ?? '');
+            if (
+                status === 'dispatch_searching' ||
+                status === 'dispatch_retrying' ||
+                status === 'dispatch_expired'
+            ) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private canCustomerCancelOrder(order: any) {
+        if (!order) return false;
+        if (order.driver_id) return false;
+        if ([OrderStatus.CANCELLED, OrderStatus.COMPLETED].includes(order.status)) {
+            return false;
+        }
+
+        if (order.status === OrderStatus.PENDING) return true;
+        if (order.order_type !== OrderType.DELIVERY) return false;
+
+        const marker = this.getLastDispatchMarker(order);
+        return (
+            marker === 'dispatch_searching' ||
+            marker === 'dispatch_retrying' ||
+            marker === 'dispatch_expired'
+        );
     }
 
     async getCustomerTracking(userId: string, orderId: string) {
@@ -164,6 +197,9 @@ export class OrderTrackingQueryService {
             },
 
             proof_of_delivery_images: order.proof_of_delivery_images ?? [],
+            actions: {
+                can_cancel: this.canCustomerCancelOrder(order),
+            },
             created_at: order.created_at ? new Date(order.created_at).toISOString() : null,
             updated_at: order.updated_at ? new Date(order.updated_at).toISOString() : null,
         };

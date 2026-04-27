@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:customer/core/realtime/socket_provider.dart';
 import 'package:customer/features/orders/data/repository/order_tracking_repository.dart';
+import 'package:customer/features/orders/presentation/viewmodels/order_chat_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class OrderTrackingState {
@@ -122,6 +123,10 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
 
       final current = state.order;
       if (current != null) {
+        if (nextStatus == 'completed' || nextStatus == 'cancelled') {
+          unawaited(OrderChatLocalCache.clear(orderId));
+        }
+
         state = state.copyWith(
           order: TrackingOrder(
             id: current.id,
@@ -129,6 +134,9 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
             status: nextStatus.isEmpty ? current.status : nextStatus,
             orderType: current.orderType,
             driverAssigned: data['driverId'] != null || current.driverAssigned,
+            canCancel:
+                (data['driverId'] == null && current.canCancel) &&
+                nextStatus != 'cancelled',
             merchant: current.merchant,
             driver: current.driver,
             delivery: current.delivery,
@@ -178,6 +186,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
 
     _orderCancelledSub = _socketService.orderCancelledStream.listen((data) {
       if (data['orderId']?.toString() != orderId) return;
+      unawaited(OrderChatLocalCache.clear(orderId));
 
       final current = state.order;
       if (current != null) {
@@ -188,6 +197,7 @@ class OrderTrackingController extends StateNotifier<OrderTrackingState> {
             status: 'cancelled',
             orderType: current.orderType,
             driverAssigned: current.driverAssigned,
+            canCancel: false,
             merchant: current.merchant,
             driver: current.driver,
             delivery: current.delivery,

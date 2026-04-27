@@ -21,7 +21,9 @@ import 'package:iconsax_flutter/iconsax_flutter.dart';
 import 'package:lottie/lottie.dart';
 
 class MainShell extends ConsumerStatefulWidget {
-  const MainShell({super.key});
+  const MainShell({super.key, this.initialIndex = 0});
+
+  final int initialIndex;
 
   @override
   ConsumerState<MainShell> createState() => _MainShellState();
@@ -29,7 +31,7 @@ class MainShell extends ConsumerStatefulWidget {
 
 class _MainShellState extends ConsumerState<MainShell>
     with WidgetsBindingObserver {
-  int _index = 0;
+  late int _index;
 
   // Ẩn/hiện nav bar khi scroll (chỉ ở tab Home)
   bool _isVisible = true;
@@ -39,6 +41,8 @@ class _MainShellState extends ConsumerState<MainShell>
   @override
   void initState() {
     super.initState();
+    _index = widget.initialIndex.clamp(0, _built.length - 1).toInt();
+    _built[_index] = true;
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -223,11 +227,11 @@ class _MainShellState extends ConsumerState<MainShell>
                       decoration: BoxDecoration(
                         border: Border(
                           top: BorderSide(
-                            color: AppColor.textPrimary.withOpacity(.4),
+                            color: AppColor.textPrimary.withValues(alpha: .4),
                             width: .4,
                           ),
                         ),
-                        color: Colors.white.withOpacity(.75),
+                        color: Colors.white.withValues(alpha: .75),
                       ),
                       child: Material(
                         type: MaterialType.transparency, // ✅ trong suốt thật
@@ -414,11 +418,10 @@ class _NavIconWithBadge extends StatelessWidget {
 }
 
 class _ScanButton extends StatefulWidget {
-  const _ScanButton({required this.onTap, this.size = 54, this.color});
+  const _ScanButton({required this.onTap});
 
   final VoidCallback onTap;
-  final double size;
-  final Color? color;
+  static const double size = 54;
 
   @override
   State<_ScanButton> createState() => _ScanButtonState();
@@ -445,7 +448,7 @@ class _ScanButtonState extends State<_ScanButton>
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.color ?? AppColor.primary;
+    const c = AppColor.primary;
 
     const double spread = 14; // 👈 giảm/tăng để vòng tỏa nhỏ/lớn
 
@@ -454,26 +457,26 @@ class _ScanButtonState extends State<_ScanButton>
       children: [
         // ✅ giữ đúng size nút -> không bị đội lên cao
         SizedBox(
-          width: widget.size,
-          height: widget.size,
+          width: _ScanButton.size,
+          height: _ScanButton.size,
           child: Stack(
             alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
               IgnorePointer(
                 child: OverflowBox(
-                  maxWidth: widget.size + spread * 2,
-                  maxHeight: widget.size + spread * 2,
+                  maxWidth: _ScanButton.size + spread * 2,
+                  maxHeight: _ScanButton.size + spread * 2,
                   child: AnimatedBuilder(
                     animation: _ctrl,
                     builder: (_, __) {
-                      final paintSize = widget.size + spread * 2;
+                      final paintSize = _ScanButton.size + spread * 2;
                       return CustomPaint(
                         size: Size.square(paintSize),
                         painter: _PulsePainter(
                           t: _ctrl.value,
                           color: c,
-                          baseRadius: widget.size / 2,
+                          baseRadius: _ScanButton.size / 2,
                           spread: spread,
                         ),
                       );
@@ -488,8 +491,8 @@ class _ScanButtonState extends State<_ScanButton>
                   onTap: widget.onTap,
                   borderRadius: BorderRadius.circular(999),
                   child: Container(
-                    width: widget.size,
-                    height: widget.size,
+                    width: _ScanButton.size,
+                    height: _ScanButton.size,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: c,
@@ -564,7 +567,7 @@ class _PulsePainter extends CustomPainter {
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _lerp(6, 1.5, phase)
-        ..color = color.withOpacity(opacity.clamp(0.0, 1.0));
+        ..color = color.withValues(alpha: opacity.clamp(0.0, 1.0));
 
       canvas.drawCircle(center, radius, paint);
     }

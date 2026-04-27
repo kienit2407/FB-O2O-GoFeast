@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:driver/core/realtime/socket_provider.dart';
 import 'package:driver/features/drivers/data/repository/driver_order_repository.dart';
+import 'package:driver/features/drivers/presentation/viewmodels/order_chat_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class DriverDeliveryTrackingState {
@@ -40,7 +41,7 @@ class DriverDeliveryTrackingState {
       ['confirmed', 'preparing', 'ready_for_pickup'].contains(status);
   bool get canPickUp => driverHasArrived && status == 'ready_for_pickup';
 
- bool get canStartDelivering => status == 'picked_up';
+  bool get canStartDelivering => status == 'picked_up';
 
   bool get canDelivered => ['delivering'].contains(status);
 
@@ -108,6 +109,7 @@ class DriverDeliveryTrackingController
       if (nextStatus == null || nextStatus.isEmpty) return;
 
       if (nextStatus == 'completed' || nextStatus == 'cancelled') {
+        unawaited(OrderChatLocalCache.clear(eventOrderId));
         clear();
         return;
       }
@@ -145,6 +147,10 @@ class DriverDeliveryTrackingController
 
   void setProofImages(List<String> urls) {
     state = state.copyWith(proofImages: urls, clearError: true);
+  }
+
+  void setBusy(bool isBusy) {
+    state = state.copyWith(isBusy: isBusy);
   }
 
   Future<void> markArrived({String? note}) async {
@@ -225,6 +231,7 @@ class DriverDeliveryTrackingController
     final orderId = state.orderId;
     if (orderId != null && orderId.isNotEmpty) {
       _socketService.leaveOrderRoom(orderId);
+      unawaited(OrderChatLocalCache.clear(orderId));
     }
     state = const DriverDeliveryTrackingState();
   }

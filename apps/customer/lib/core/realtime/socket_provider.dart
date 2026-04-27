@@ -19,6 +19,8 @@ class CustomerSocketEvents {
   static const joinOrderRoom = 'order:room:join';
   static const leaveOrderRoom = 'order:room:leave';
   static const notificationNew = 'customer:notification:new';
+  static const orderChatNew = 'order:chat:new';
+  static const orderChatSend = 'order:chat:send';
 }
 
 class CustomerSocketService {
@@ -45,6 +47,8 @@ class CustomerSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _dineInSessionController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _orderChatController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get promotionPushStream =>
       _promotionPushController.stream;
@@ -63,6 +67,8 @@ class CustomerSocketService {
       _notificationNewController.stream;
   Stream<Map<String, dynamic>> get dineInSessionStream =>
       _dineInSessionController.stream;
+  Stream<Map<String, dynamic>> get orderChatStream =>
+      _orderChatController.stream;
 
   bool get isConnected => _socket?.connected == true;
 
@@ -179,6 +185,11 @@ class CustomerSocketService {
         _dineInSessionController.add(Map<String, dynamic>.from(data));
       }
     });
+    s.on(CustomerSocketEvents.orderChatNew, (data) {
+      if (data is Map) {
+        _orderChatController.add(Map<String, dynamic>.from(data));
+      }
+    });
   }
 
   Future<void> connect() async {
@@ -228,6 +239,33 @@ class CustomerSocketService {
     _socket?.emit(CustomerSocketEvents.leaveOrderRoom, {'orderId': orderId});
   }
 
+  Future<Map<String, dynamic>> emitOrderChatMessage({
+    required String orderId,
+    required String clientMessageId,
+    required String text,
+  }) async {
+    final s = _socket;
+    if (s == null || !s.connected) {
+      return {'ok': false, 'message': 'Socket chưa kết nối'};
+    }
+
+    final response = await s
+        .emitWithAckAsync(CustomerSocketEvents.orderChatSend, {
+          'orderId': orderId,
+          'clientMessageId': clientMessageId,
+          'text': text,
+        })
+        .timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => {'ok': false, 'message': 'Gửi tin nhắn quá hạn'},
+        );
+
+    if (response is Map) {
+      return Map<String, dynamic>.from(response);
+    }
+    return {'ok': false, 'message': 'Phản hồi socket không hợp lệ'};
+  }
+
   Future<void> dispose() async {
     await _orderStatusController.close();
     await _driverLocationController.close();
@@ -237,6 +275,7 @@ class CustomerSocketService {
     await _connectionController.close();
     await _notificationNewController.close();
     await _dineInSessionController.close();
+    await _orderChatController.close();
     await _promotionPushController.close();
     _socket?.dispose();
     _socket = null;
