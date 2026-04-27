@@ -48,6 +48,7 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
     private readonly DRIVER_SEARCH_LIMIT = 20;
     private readonly DRIVER_OFFER_BATCH_SIZE = 5;
     private readonly DRIVER_LOCATION_FRESH_MS = 3 * 60 * 1000;
+    private readonly DRIVER_RESERVED_RETRY_DELAY_MS = 5_000;
     private readonly MAX_DISPATCH_WAVES = 3;
     private readonly logger = new Logger(OrderLifecycleService.name);
     constructor(
@@ -721,21 +722,39 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
             });
 
         const busyDriverIds = await this.getBusyDriverIds();
+        const reservedDriverIds = this.dispatchOfferService.getPendingReservedDriverIds();
         const now = Date.now();
         const excluded = new Set((opts?.excludedDriverIds ?? []).map(String));
+        let busyFiltered = 0;
+        let reservedFiltered = 0;
+        let excludedFiltered = 0;
+        let staleLocationFiltered = 0;
 
         const eligibleDriverIds = nearbyDrivers
             .filter((x: any) => {
                 const driverUserId = String(x.user_id);
-                if (busyDriverIds.has(driverUserId)) return false;
-                if (excluded.has(driverUserId)) return false;
+                if (busyDriverIds.has(driverUserId)) {
+                    busyFiltered += 1;
+                    return false;
+                }
+                if (reservedDriverIds.has(driverUserId)) {
+                    reservedFiltered += 1;
+                    return false;
+                }
+                if (excluded.has(driverUserId)) {
+                    excludedFiltered += 1;
+                    return false;
+                }
 
                 const lastUpdate = x.last_location_update
                     ? new Date(x.last_location_update).getTime()
                     : 0;
 
-                if (!lastUpdate) return false;
-                return now - lastUpdate <= this.DRIVER_LOCATION_FRESH_MS;
+                if (!lastUpdate || now - lastUpdate > this.DRIVER_LOCATION_FRESH_MS) {
+                    staleLocationFiltered += 1;
+                    return false;
+                }
+                return true;
             })
             .map((x: any) => String(x.user_id));
 
@@ -743,7 +762,7 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         const wave = Number(opts?.wave ?? 1);
 
         this.logger.log(
-            `[dispatch] order=${orderId} wave=${wave} nearby=${nearbyDrivers.length} eligible=${eligibleDriverIds.length} candidate=${candidateDriverIds.length}`,
+            `[dispatch] order=${orderId} wave=${wave} nearby=${nearbyDrivers.length} eligible=${eligibleDriverIds.length} candidate=${candidateDriverIds.length} filtered_busy=${busyFiltered} filtered_reserved=${reservedFiltered} filtered_excluded=${excludedFiltered} filtered_stale=${staleLocationFiltered}`,
         );
 
         this.logger.log(
@@ -755,6 +774,71 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         );
 
         if (!candidateDriverIds.length) {
+            if (reservedFiltered > 0 && wave < this.MAX_DISPATCH_WAVES) {
+                const retryWave = wave + 1;
+                const retryAt = new Date(Date.now() + this.DRIVER_RESERVED_RETRY_DELAY_MS);
+                const nowIso = new Date().toISOString();
+
+                order.driver_accept_deadline_at = null;
+                order.status_history.push(
+                    this.buildHistory({
+                        status: 'dispatch_retrying',
+                        note: `No free drivers at wave ${wave}; ${reservedFiltered} nearby drivers are reserved. Retry wave ${retryWave} at ${retryAt.toISOString()}`,
+                    }) as any,
+                );
+                await order.save();
+
+                this.realtimeGateway.emitToCustomer(
+                    String(order.customer_id),
+                    RealtimeEvents.CUSTOMER_DISPATCH_SEARCHING,
+                    {
+                        orderId: String(order._id),
+                        status: 'searching_driver',
+                        reason: 'drivers_reserved',
+                        wave,
+                        nextWave: retryWave,
+                        retryAt: retryAt.toISOString(),
+                        message: 'Hệ thống đang chờ tài xế gần đó sẵn sàng nhận đơn',
+                        updatedAt: nowIso,
+                    },
+                );
+
+                this.realtimeGateway.emitToMerchant(
+                    String(order.merchant_id),
+                    RealtimeEvents.MERCHANT_ORDER_STATUS,
+                    {
+                        orderId: String(order._id),
+                        status: 'dispatch_retrying',
+                        reason: 'drivers_reserved',
+                        wave,
+                        nextWave: retryWave,
+                        retryAt: retryAt.toISOString(),
+                        message: `Tài xế gần quán đang xử lý đề nghị khác. Hệ thống sẽ thử lại đợt ${retryWave}`,
+                        updatedAt: nowIso,
+                    },
+                );
+
+                setTimeout(() => {
+                    void this.startDispatchForOrder(String(order._id), {
+                        excludedDriverIds: [...excluded],
+                        wave: retryWave,
+                    }).catch((error) => {
+                        this.logger.error(
+                            `[dispatch] reserved retry failed order=${String(order._id)} wave=${retryWave}: ${error?.message ?? error}`,
+                        );
+                    });
+                }, this.DRIVER_RESERVED_RETRY_DELAY_MS);
+
+                return {
+                    ok: true,
+                    reason: 'reserved_drivers_retry_scheduled',
+                    orderId: String(order._id),
+                    wave,
+                    nextWave: retryWave,
+                    retryAt: retryAt.toISOString(),
+                };
+            }
+
             const nowIso = new Date().toISOString();
 
             this.realtimeGateway.emitToCustomer(
@@ -861,41 +945,65 @@ export class OrderLifecycleService implements DispatchOfferLifecycleHandler {
         driverId: string;
         offer?: any;
     }) {
-        const order = await this.orderModel.findById(this.oid(params.orderId, 'orderId'));
-        if (!order) {
-            throw new NotFoundException('Order not found');
-        }
+        const orderId = this.oid(params.orderId, 'orderId');
+        const driverId = this.oid(params.driverId, 'driverId');
+        const assignedAt = new Date();
 
-        if (order.order_type !== OrderType.DELIVERY) {
-            throw new BadRequestException('Order is not a delivery order');
-        }
-
-        if (order.status === OrderStatus.CANCELLED) {
-            throw new BadRequestException('Order already cancelled');
-        }
-
-        if (order.status === OrderStatus.COMPLETED) {
-            throw new BadRequestException('Order already completed');
-        }
-
-        if (order.driver_id && String(order.driver_id) !== params.driverId) {
-            throw new ConflictException('Order already assigned to another driver');
-        }
-
-        order.driver_id = this.oid(params.driverId, 'driverId');
-        order.status = OrderStatus.DRIVER_ASSIGNED;
-        order.driver_assigned_at = new Date();
-        order.driver_accept_deadline_at = null;
-
-        order.status_history.push(
-            this.buildHistory({
-                status: OrderStatus.DRIVER_ASSIGNED,
-                changedBy: params.driverId,
-                note: 'Driver accepted delivery offer',
-            }) as any,
+        const order = await this.orderModel.findOneAndUpdate(
+            {
+                _id: orderId,
+                order_type: OrderType.DELIVERY,
+                status: { $nin: [OrderStatus.CANCELLED, OrderStatus.COMPLETED] },
+                driver_id: null,
+            },
+            {
+                $set: {
+                    driver_id: driverId,
+                    status: OrderStatus.DRIVER_ASSIGNED,
+                    driver_assigned_at: assignedAt,
+                    driver_accept_deadline_at: null,
+                },
+                $push: {
+                    status_history: this.buildHistory({
+                        status: OrderStatus.DRIVER_ASSIGNED,
+                        changedBy: params.driverId,
+                        note: 'Driver accepted delivery offer',
+                    }) as any,
+                },
+            },
+            { new: true },
         );
 
-        await order.save();
+        if (!order) {
+            const current = await this.orderModel.findById(orderId).select({
+                _id: 1,
+                order_type: 1,
+                status: 1,
+                driver_id: 1,
+            });
+
+            if (!current) {
+                throw new NotFoundException('Order not found');
+            }
+
+            if (current.order_type !== OrderType.DELIVERY) {
+                throw new BadRequestException('Order is not a delivery order');
+            }
+
+            if (current.status === OrderStatus.CANCELLED) {
+                throw new BadRequestException('Order already cancelled');
+            }
+
+            if (current.status === OrderStatus.COMPLETED) {
+                throw new BadRequestException('Order already completed');
+            }
+
+            if (current.driver_id) {
+                throw new ConflictException('Order already assigned to another driver');
+            }
+
+            throw new ConflictException('Order is not available for driver assignment');
+        }
 
         await this.emitOrderStatus({
             order,

@@ -183,7 +183,10 @@ class DriverOfferController extends StateNotifier<DriverOfferState> {
   }
 
   void _onNewOffer(Map<String, dynamic> data) {
-    print('[DRIVER OFFER] received offer = $data');
+    if (state.visible || state.isSubmitting || state.hasCurrentOrder) {
+      return;
+    }
+
     final expiresAtRaw = data['offerExpiresAt']?.toString();
     final expiresAt = expiresAtRaw == null
         ? null

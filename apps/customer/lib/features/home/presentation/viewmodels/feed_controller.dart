@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:customer/features/home/data/models/feed_home_model.dart';
 import 'package:customer/features/home/data/repository/feed_repository.dart';
 import 'package:customer/features/home/presentation/viewmodels/feed_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -53,5 +56,36 @@ class FeedController extends StateNotifier<FeedState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
+  }
+
+  void logClick({
+    required String sectionKey,
+    required int position,
+    required FeedItem item,
+  }) {
+    final requestId = state.data?.requestId;
+    if (requestId == null || requestId.isEmpty) return;
+
+    final itemType = item.type == FeedItemType.product ? 'product' : 'merchant';
+    final merchantId = item.type == FeedItemType.product
+        ? item.merchant?.id
+        : item.merchantId;
+    final productId = item.type == FeedItemType.product ? item.productId : null;
+
+    if (merchantId == null || merchantId.isEmpty) return;
+
+    unawaited(
+      _repo
+          .logInteraction(
+            action: 'click',
+            requestId: requestId,
+            section: sectionKey,
+            position: position,
+            itemType: itemType,
+            merchantId: merchantId,
+            productId: productId,
+          )
+          .catchError((_) {}),
+    );
   }
 }

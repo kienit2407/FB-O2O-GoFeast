@@ -37,4 +37,27 @@ class FeedRepository {
 
     return FeedHomeResponse.fromJson(body);
   }
+
+  Future<void> logInteraction({
+    required String action,
+    required String requestId,
+    required String section,
+    required int position,
+    required String itemType,
+    required String merchantId,
+    String? productId,
+  }) async {
+    await dio.post<dynamic>(
+      '/feed/interaction',
+      data: {
+        'action': action,
+        'request_id': requestId,
+        'section': section,
+        'position': position,
+        'item_type': itemType,
+        'merchant_id': merchantId,
+        if (productId != null && productId.isNotEmpty) 'product_id': productId,
+      },
+    );
+  }
 }

@@ -325,6 +325,27 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     }
   }
 
+  bool _isTimelineSearchingDriver(String status) {
+    return status == 'searching_driver' ||
+        status == 'dispatch_searching' ||
+        status == 'dispatch_retrying';
+  }
+
+  bool _isActiveTimelineStatus(
+    String timelineStatus,
+    String displayStatus,
+    String orderStatus,
+  ) {
+    if (displayStatus == 'searching_driver') {
+      return _isTimelineSearchingDriver(timelineStatus);
+    }
+    return timelineStatus == displayStatus || timelineStatus == orderStatus;
+  }
+
+  bool _isCompletedStatus(String status) {
+    return status == 'delivered' || status == 'completed';
+  }
+
   String _statusTimelineLabel(String status, String orderType) {
     final isDineIn = orderType == 'dine_in';
 
@@ -365,6 +386,7 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
 
   String _statusTimelineNote(String status, String? rawNote, String orderType) {
     final isDineIn = orderType == 'dine_in';
+    final readableRawNote = _readableSystemTimelineNote(rawNote);
 
     switch (status) {
       case 'merchant_notified':
@@ -382,13 +404,46 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
         return isDineIn
             ? 'Đơn của bạn đã được quán tiếp nhận phục vụ.'
             : 'Một tài xế đã nhận đơn giao hàng của bạn.';
+      case 'confirmed':
+        return readableRawNote.isNotEmpty
+            ? readableRawNote
+            : (isDineIn
+                  ? 'Quán đã xác nhận đơn của bạn.'
+                  : 'Đơn hàng của bạn đã được hệ thống tiếp nhận.');
       case 'pending':
-        return rawNote?.trim().isNotEmpty == true
-            ? rawNote!.trim()
+        return readableRawNote.isNotEmpty
+            ? readableRawNote
             : 'Đơn hàng của bạn đã được tạo thành công.';
       default:
-        if ((rawNote ?? '').trim().isNotEmpty) return rawNote!.trim();
+        if (readableRawNote.isNotEmpty) return readableRawNote;
         return '';
+    }
+  }
+
+  String _readableSystemTimelineNote(String? rawNote) {
+    final note = rawNote?.trim() ?? '';
+    if (note.isEmpty) return '';
+
+    switch (note.toLowerCase()) {
+      case 'delivery order created':
+        return 'Đơn giao hàng của bạn đã được tạo thành công.';
+      case 'dine-in order created':
+        return 'Đơn tại quán của bạn đã được tạo thành công.';
+      case 'delivery order auto-confirmed by system':
+        return 'Đơn giao hàng đã được hệ thống tự động tiếp nhận.';
+      case 'merchant has been notified about the new delivery order':
+      case 'merchant has been notified about the new dine-in order':
+        return 'Hệ thống đã gửi thông báo đơn mới đến quán.';
+      case 'driver accepted delivery offer':
+        return 'Tài xế đã nhận đơn giao hàng của bạn.';
+      case 'merchant manually retried dispatch':
+        return 'Quán đã yêu cầu tìm lại tài xế cho đơn hàng.';
+      case 'customer cancelled order':
+        return 'Khách hàng đã huỷ đơn.';
+      case 'merchant confirmed paid dine-in order':
+        return 'Quán đã xác nhận thanh toán cho đơn tại quán.';
+      default:
+        return note;
     }
   }
 
@@ -460,6 +515,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
     final displayedTimeline = _timelineExpanded || timelineItems.length <= 3
         ? timelineItems
         : timelineItems.take(3).toList();
+    final activeSearchingIndex = detail?.displayStatus == 'searching_driver'
+        ? displayedTimeline.lastIndexWhere(
+            (item) => _isTimelineSearchingDriver(item.status),
+          )
+        : -1;
 
     return Scaffold(
       backgroundColor: AppColor.background,
@@ -539,6 +599,21 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
                           ...List.generate(displayedTimeline.length, (i) {
                             final item = displayedTimeline[i];
                             final isLast = i == displayedTimeline.length - 1;
+                            final isSearchingDriver = i == activeSearchingIndex;
+                            final isActive = isSearchingDriver
+                                ? true
+                                : detail.displayStatus == 'searching_driver'
+                                ? false
+                                : _isActiveTimelineStatus(
+                                    item.status,
+                                    detail.displayStatus,
+                                    detail.status,
+                                  );
+                            final isCompleted =
+                                !isActive || _isCompletedStatus(item.status);
+                            final timelineColor = isCompleted
+                                ? AppColor.primary
+                                : _statusColor(item.status);
                             return _TimelineItem(
                               isLast: isLast,
                               title: _statusTimelineLabel(
@@ -551,7 +626,11 @@ class _OrderDetailPageState extends ConsumerState<OrderDetailPage> {
                                 item.note,
                                 detail.orderType,
                               ),
-                              color: _statusColor(item.status),
+                              color: timelineColor,
+                              lineColor: isCompleted
+                                  ? AppColor.primary.withValues(alpha: 0.45)
+                                  : AppColor.border,
+                              isLoading: isSearchingDriver,
                             );
                           }),
                           if (timelineItems.length > 3) ...[
@@ -1098,13 +1177,15 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-class _TimelineItem extends StatelessWidget {
+class _TimelineItem extends StatefulWidget {
   const _TimelineItem({
     required this.isLast,
     required this.title,
     required this.time,
     required this.note,
     required this.color,
+    required this.lineColor,
+    required this.isLoading,
   });
 
   final bool isLast;
@@ -1112,6 +1193,45 @@ class _TimelineItem extends StatelessWidget {
   final String time;
   final String note;
   final Color color;
+  final Color lineColor;
+  final bool isLoading;
+
+  @override
+  State<_TimelineItem> createState() => _TimelineItemState();
+}
+
+class _TimelineItemState extends State<_TimelineItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _loadingController;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
+    if (widget.isLoading) {
+      _loadingController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _TimelineItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isLoading && !_loadingController.isAnimating) {
+      _loadingController.repeat();
+    } else if (!widget.isLoading && _loadingController.isAnimating) {
+      _loadingController.stop();
+      _loadingController.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _loadingController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1121,16 +1241,16 @@ class _TimelineItem extends StatelessWidget {
         children: [
           Column(
             children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              _TimelineDot(
+                color: widget.color,
+                isLoading: widget.isLoading,
+                animation: _loadingController,
               ),
-              if (!isLast)
+              if (!widget.isLast)
                 Expanded(
                   child: Container(
                     width: 2,
-                    color: AppColor.border,
+                    color: widget.lineColor,
                     margin: const EdgeInsets.symmetric(vertical: 4),
                   ),
                 ),
@@ -1144,27 +1264,27 @@ class _TimelineItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    widget.title,
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 14,
                       color: AppColor.textPrimary,
                     ),
                   ),
-                  if (time.isNotEmpty) ...[
+                  if (widget.time.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
-                      time,
+                      widget.time,
                       style: const TextStyle(
                         color: AppColor.textSecondary,
                         fontSize: 12,
                       ),
                     ),
                   ],
-                  if (note.trim().isNotEmpty) ...[
+                  if (widget.note.trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      note,
+                      widget.note,
                       style: const TextStyle(
                         color: AppColor.textSecondary,
                         fontSize: 13,
@@ -1177,6 +1297,72 @@ class _TimelineItem extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TimelineDot extends StatelessWidget {
+  const _TimelineDot({
+    required this.color,
+    required this.isLoading,
+    required this.animation,
+  });
+
+  final Color color;
+  final bool isLoading;
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isLoading) {
+      return Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    }
+
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final progress = animation.value;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Transform.scale(
+                scale: 0.65 + (progress * 0.65),
+                child: Opacity(
+                  opacity: 1 - progress,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.22),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              Container(
+                width: 5,
+                height: 5,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

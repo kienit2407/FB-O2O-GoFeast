@@ -7,6 +7,7 @@ export enum FeedSectionKey {
     FOOD_FOR_YOU = 'food_for_you',
     PEOPLE_LOVE = 'people_love',
     RESTAURANTS_YOU_MAY_LIKE = 'restaurants_you_may_like',
+    AI_RECOMMENDED_PRODUCTS = 'ai_recommended_products',
 }
 
 export enum FeedItemType {

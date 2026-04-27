@@ -30,7 +30,6 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   Timer? _holdTimer;
   bool _allowShowHome = false;
-  bool _didListen = false;
   static bool _sessionEnteredHome = false;
 
   bool _delayStarted = false; // ✅ để không start timer lặp
@@ -212,6 +211,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                   sections: feedSt.data?.sections ?? const [],
                   isLoading: feedSt.isLoading,
                   error: feedSt.error,
+                  onLogClick:
+                      ({
+                        required item,
+                        required position,
+                        required sectionKey,
+                      }) {
+                        ref
+                            .read(feedControllerProvider.notifier)
+                            .logClick(
+                              sectionKey: sectionKey,
+                              position: position,
+                              item: item,
+                            );
+                      },
                   onRetry: () {
                     final c = addr.current;
                     if (c?.lat != null && c?.lng != null) {
@@ -299,24 +312,21 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
     required this.onTapSearch,
     required this.onTapAddress,
     required this.onTapFavorite,
-    this.hintText = 'Siêu Deal Đầu Năm, Giảm Tới 50%',
   });
   final VoidCallback onTapFavorite; // ✅
   final double topPadding;
   final String? addressText;
   final VoidCallback onTapSearch;
   final VoidCallback onTapAddress;
-  final String hintText;
   final bool locationError;
   static const double _padX = 16;
   static const double _searchH = 44;
   static const double _addressRowH = 44;
   static const double _gap = 10;
-  static const double _bottomPadExpanded = 16;
-  static const double _bottomPadCollapsed = 12;
+  static const String _hintText = 'Siêu Deal Đầu Năm, Giảm Tới 50%';
 
-  double get maxExtent =>
-      topPadding + 6 + _addressRowH + 6 + _searchH + 10; // nhỏ hơn
+  @override
+  double get maxExtent => topPadding + 6 + _addressRowH + 6 + _searchH + 10; // nhỏ hơn
 
   @override
   double get minExtent => topPadding + 4 + _searchH + 8; // nhỏ hơn
@@ -380,7 +390,7 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF5A1F).withOpacity(t * 0.10),
+                  color: const Color(0xFFFF5A1F).withValues(alpha: t * 0.10),
                 ),
               ),
             ),
@@ -458,7 +468,7 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
                         // <--- Thêm Expanded ở đây
                         child: _SearchPill(
                           height: _searchH,
-                          hintText: hintText,
+                          hintText: _hintText,
                           onTap: onTapSearch,
                         ),
                       ),
@@ -481,7 +491,7 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
               bottom: 0,
               child: Container(
                 height: 1,
-                color: Colors.black.withOpacity(0.10),
+                color: Colors.black.withValues(alpha: 0.10),
               ),
             ),
         ],
@@ -493,7 +503,6 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(covariant _HomeHeaderDelegate oldDelegate) {
     return oldDelegate.topPadding != topPadding ||
         oldDelegate.addressText != addressText ||
-        oldDelegate.hintText != hintText ||
         oldDelegate.onTapSearch != onTapSearch ||
         oldDelegate.onTapAddress != onTapAddress;
   }
@@ -516,14 +525,14 @@ class _SearchPill extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(28),
       child: Container(
-        height: 35,
+        height: height,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.10),
+              color: Colors.black.withValues(alpha: 0.10),
               blurRadius: 12,
               offset: const Offset(0, 8),
             ),
@@ -557,17 +566,11 @@ class _SearchPill extends StatelessWidget {
 }
 
 class _SearchHintTyper extends StatefulWidget {
-  const _SearchHintTyper({
-    required this.hints,
-    this.textStyle,
-    this.typingSpeed = const Duration(milliseconds: 120),
-    this.pauseDuration = const Duration(milliseconds: 1200),
-  });
+  const _SearchHintTyper({required this.hints});
 
   final List<String> hints;
-  final TextStyle? textStyle;
-  final Duration typingSpeed;
-  final Duration pauseDuration;
+  static const typingSpeed = Duration(milliseconds: 120);
+  static const pauseDuration = Duration(milliseconds: 1200);
 
   @override
   State<_SearchHintTyper> createState() => _SearchHintTyperState();
@@ -589,7 +592,7 @@ class _SearchHintTyperState extends State<_SearchHintTyper> {
 
   void _startTyping() {
     _timer?.cancel();
-    _timer = Timer.periodic(widget.typingSpeed, (timer) {
+    _timer = Timer.periodic(_SearchHintTyper.typingSpeed, (timer) {
       setState(() {
         if (!_isDeleting) {
           // Đang gõ
@@ -599,7 +602,7 @@ class _SearchHintTyperState extends State<_SearchHintTyper> {
             // Gõ xong -> pause rồi bắt đầu xoá
             _isDeleting = true;
             _timer?.cancel();
-            _timer = Timer(widget.pauseDuration, _startTyping);
+            _timer = Timer(_SearchHintTyper.pauseDuration, _startTyping);
           }
         } else {
           // Đang xoá
@@ -629,13 +632,11 @@ class _SearchHintTyperState extends State<_SearchHintTyper> {
     final text = _currentHint.substring(0, _charIndex);
     return Text(
       text.isEmpty ? 'Tìm kiếm' : text, // fallback khi mới vào
-      style:
-          widget.textStyle ??
-          const TextStyle(
-            color: AppColor.primary,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+      style: const TextStyle(
+        color: AppColor.primary,
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+      ),
       overflow: TextOverflow.ellipsis,
     );
   }

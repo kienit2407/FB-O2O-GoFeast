@@ -7,6 +7,7 @@ import type { Cache as CacheManager } from 'cache-manager';
 import { Order, OrderStatus, OrderType, PaymentStatus } from 'src/modules/orders/schemas';
 import { Merchant, MerchantApprovalStatus, Product } from 'src/modules/merchants/schemas';
 import { InteractionAction, UserInteraction } from 'src/modules/ai/schemas/user-interaction.schema';
+import { Recommendation, RecommendationType } from 'src/modules/ai/schemas/recommendation.schema';
 import { FeedImpression, FeedItemType, FeedSectionKey } from '../shemas/feed-impression.schema';
 type GetHomeFeedInput = {
     userId: string | null;
@@ -37,6 +38,7 @@ export class FeedService {
         @InjectModel(Product.name) private readonly productModel: Model<Product>,
         @InjectModel(Order.name) private readonly orderModel: Model<Order>,
         @InjectModel(UserInteraction.name) private readonly interactionModel: Model<UserInteraction>,
+        @InjectModel(Recommendation.name) private readonly recommendationModel: Model<Recommendation>,
         @Inject(CACHE_MANAGER) private readonly cache: CacheManager,
         @InjectModel(FeedImpression.name)
         private readonly feedImpressionModel: Model<FeedImpression>,
@@ -57,10 +59,18 @@ export class FeedService {
         product_id?: string;
     }) {
         // bạn nói chỉ log khi có user => đã guard rồi
+        const weightByAction: Record<string, number> = {
+            [InteractionAction.VIEW]: 1,
+            [InteractionAction.CLICK]: 2,
+            [InteractionAction.ADD_TO_CART]: 4,
+            [InteractionAction.ORDER]: 8,
+            [InteractionAction.RATE]: 5,
+        };
+
         await this.interactionModel.create({
             user_id: new Types.ObjectId(userId),
             action: dto.action,
-            weight: dto.action === InteractionAction.CLICK ? 2 : 1, // MVP
+            weight: weightByAction[dto.action] ?? 1,
             source: 'home',
             request_id: dto.request_id,
             section: dto.section,
@@ -438,19 +448,121 @@ export class FeedService {
         return payload;
     }
 
+    private async buildAiRecommendedProducts(input: GetHomeFeedInput, candidates: MerchantCandidate[]) {
+        if (!input.userId) {
+            return { key: 'ai_recommended_products', title: 'Gợi ý riêng cho bạn', items: [] };
+        }
+
+        const userObjId = new Types.ObjectId(input.userId);
+        const rec: any = await this.recommendationModel
+            .findOne({
+                user_id: userObjId,
+                type: RecommendationType.PRODUCTS,
+                expires_at: { $gt: new Date() },
+            })
+            .sort({ generated_at: -1, updated_at: -1 })
+            .lean();
+
+        const rawItems = Array.isArray(rec?.items) ? rec.items : [];
+        if (!rawItems.length) {
+            return { key: 'ai_recommended_products', title: 'Gợi ý riêng cho bạn', items: [] };
+        }
+
+        const candidateMerchantMap = new Map<string, MerchantCandidate>();
+        for (const merchant of candidates) {
+            candidateMerchantMap.set(String(merchant._id), merchant);
+        }
+
+        const productIds = rawItems
+            .map((item: any) => item?.item_id)
+            .filter((id: any) => id && Types.ObjectId.isValid(String(id)))
+            .map((id: any) => new Types.ObjectId(String(id)));
+
+        if (!productIds.length) {
+            return { key: 'ai_recommended_products', title: 'Gợi ý riêng cho bạn', items: [] };
+        }
+
+        const products: any[] = await this.productModel
+            .find({
+                _id: { $in: productIds },
+                is_active: true,
+                is_available: true,
+                deleted_at: null,
+            })
+            .select({
+                merchant_id: 1,
+                name: 1,
+                base_price: 1,
+                sale_price: 1,
+                average_rating: 1,
+                images: 1,
+            })
+            .lean();
+
+        const productMap = new Map(products.map((product) => [String(product._id), product]));
+        const items: any[] = [];
+        const seen = new Set<string>();
+
+        for (const recItem of rawItems) {
+            const productId = String(recItem?.item_id ?? '');
+            if (!productId || seen.has(productId)) continue;
+
+            const product = productMap.get(productId);
+            if (!product) continue;
+
+            const merchant = candidateMerchantMap.get(String(product.merchant_id));
+            if (!merchant) continue;
+
+            seen.add(productId);
+            const imageUrls = this.pickImageUrls(product);
+
+            items.push({
+                type: 'product',
+                product_id: String(product._id),
+                product_name: product.name,
+                image_urls: imageUrls,
+                image_url: imageUrls[0] ?? null,
+                base_price: product.base_price,
+                sale_price: product.sale_price,
+                rating: product.average_rating ?? 0,
+                score: Number(recItem?.score ?? 0),
+                reason: recItem?.reason ?? null,
+                merchant: {
+                    merchant_id: String(merchant._id),
+                    name: merchant.name,
+                    category: merchant.category,
+                    distance_km: Number(merchant.distance_km?.toFixed(2)),
+                    logo_url: merchant.logo_url,
+                },
+            });
+
+            if (items.length >= input.limitPerSection) break;
+        }
+
+        return {
+            key: 'ai_recommended_products',
+            title: 'Gợi ý riêng cho bạn',
+            items,
+        };
+    }
+
     async getHomeFeed(input: GetHomeFeedInput) {
         const geoCell = this.geoCell(input.lat, input.lng);
         const shownAt = new Date();
 
         const candidates = await this.getCandidateMerchants(input);
 
-        const [a, b, c] = await Promise.all([
+        const [a, b, c, d] = await Promise.all([
             this.buildFoodForYou(input, candidates),
             this.buildPeopleLove(input, candidates),
             this.buildRestaurantsYouMayLike(input, candidates),
+            this.buildAiRecommendedProducts(input, candidates),
         ]);
 
-        const sections = [a, b, c];
+        const sections = [a, b, c, d].filter((section) => {
+            if (section.key !== 'ai_recommended_products') return true;
+            return Array.isArray(section.items) && section.items.length > 0;
+        });
 
         //  chỉ log khi có user
         if (input.userId) {

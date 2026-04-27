@@ -61,6 +61,23 @@ export class DispatchOfferService {
         return this.offers.get(orderId) ?? null;
     }
 
+    getPendingReservedDriverIds() {
+        const now = Date.now();
+        const ids = new Set<string>();
+
+        for (const offer of this.offers.values()) {
+            if (offer.status !== 'pending') continue;
+            if (offer.expiresAt <= now) continue;
+
+            for (const driverId of offer.driverIds) {
+                if (offer.rejectedDriverIds.has(driverId)) continue;
+                ids.add(driverId);
+            }
+        }
+
+        return ids;
+    }
+
     startOffer(input: StartDispatchOfferInput) {
         const existing = this.offers.get(input.orderId);
         if (existing?.timeout) {

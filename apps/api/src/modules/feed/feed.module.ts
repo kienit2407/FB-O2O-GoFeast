@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Merchant, MerchantSchema, Product, ProductSchema } from '../merchants/schemas';
 import { Order, OrderSchema } from '../orders/schemas';
 import { UserInteraction, UserInteractionSchema } from '../ai/schemas/user-interaction.schema';
+import { Recommendation, RecommendationSchema } from '../ai/schemas/recommendation.schema';
 import { CacheModule } from '@nestjs/cache-manager';
 import { FeedImpression, FeedImpressionSchema } from './shemas/feed-impression.schema';
 import { FeedService } from './services/feed.service';
@@ -16,6 +17,7 @@ import { FeedService } from './services/feed.service';
       { name: Product.name, schema: ProductSchema },
       { name: Order.name, schema: OrderSchema },
       { name: UserInteraction.name, schema: UserInteractionSchema },
+      { name: Recommendation.name, schema: RecommendationSchema },
       { name: FeedImpression.name, schema: FeedImpressionSchema },
     ]),
   ],
